@@ -7,8 +7,11 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <iostream>
+#include <sstream>
 #include <algorithm>
+#include <ctime>
 #include <Eigen/Dense>
+
 
 using namespace Eigen;
 using namespace std;
@@ -40,20 +43,6 @@ MatrixXd tensorProdIdent(int identDim, MatrixXd matrixB) {
 	return outputMatrix;
 }
 
-MatrixXd copyResize(MatrixXd matrix, int newRows, int newCols) {
-	MatrixXd newMatrix(newRows,newCols);
-	int rows = min((int) matrix.rows(),newRows);
-	int cols = min((int) matrix.cols(),newCols);
-	newMatrix.setZero();
-	for (int i=0; i < rows; i++)
-		for (int j=0; j < cols; j++)
-			newMatrix(i,j) = matrix(i,j);
-	return newMatrix;
-}
-
-MatrixXd copyResize(MatrixXd matrix, int newDim) {
-	return copyResize(matrix, newDim, newDim);
-}
 
 VectorXd naiveLanczos(MatrixXd matrix) {
 	int dim = matrix.cols();
@@ -64,7 +53,7 @@ VectorXd naiveLanczos(MatrixXd matrix) {
 	baseState.setRandom();
 	baseState = baseState / baseState.norm();
 
-	MatrixXd KMatrix(m,m), tmpKMatrix;
+	MatrixXd KMatrix(m,m);
 	SelfAdjointEigenSolver<MatrixXd> solver, tmpSolver;
 	KMatrix.setZero();
 
@@ -104,16 +93,19 @@ VectorXd naiveLanczos(MatrixXd matrix) {
 
 		// check convergence
 		if (n%10 == 0) {
-			tmpKMatrix = copyResize(KMatrix,n);
-			tmpSolver.compute(tmpKMatrix,false);
+			tmpSolver.compute(KMatrix.block(0,0,n,n),false);
 			currEv= tmpSolver.eigenvalues()[0];
-			converged = abs(currEv -prevEv) < 0.00000000000001;
+			converged = abs(currEv - prevEv) < 0.00000000000001;
 			prevEv = currEv;
 		}
 	}
 
 	printf("%d iterations\n",n);
-	m = n;
+	if (n<m) {
+		MatrixXd tmpKMatrix = KMatrix.block(0,0,n,n);
+		KMatrix = tmpKMatrix;
+		m = n;
+	}
 
 	//diagonalize
 	solver.compute(KMatrix);
@@ -154,8 +146,7 @@ VectorXd naiveLanczos(MatrixXd matrix) {
 	return outputState;
 }
 
-void tryDMRG() {
-	int N = 256;
+void tryDMRG(int N) {
 	double Jxy=1, Jz=1, Hz=0;
 
 	MatrixXd SzA1(2,2), SminA1(2,2), SplusA1(2,2),
@@ -164,8 +155,9 @@ void tryDMRG() {
 			 densityMatrix, transNew2Old, transOld2New;
 	VectorXd ABBaseState;
 	SelfAdjointEigenSolver<MatrixXd> densitySolver;
+	//double val;
 
-	int D = 2, n = 2, chi = 8;
+	int D = 2, n = 2, chi = 32;
 
 	SzA1 << -0.5,0,
 			 0,0.5;
@@ -180,6 +172,7 @@ void tryDMRG() {
 	HAPrev = Hz*SzAPrev;
 
 	while (n<N) {
+		n += 2;
 		DBG(printf("n=%d D=%d, HAPrev.dim=%dx%d\n",n,D,(int) HAPrev.rows(),(int) HAPrev.cols()));
 
 		// Add site - enlarge basis
@@ -202,10 +195,38 @@ void tryDMRG() {
 		if (D > chi) {
 			// calculate Hamiltonian for AB
 			DBG(printf("\tcalculating new Hamiltonian for AB\n"));
-			HAB = tensorProdIdent(HA,D) + tensorProdIdent(D, HA.reverse())
+
+			HAB = tensorProdIdent(HA,D) + tensorProdIdent(D, HA.reverse());
+
+			//val = Jxy/2;
+			for (int i=0; i<D; i+=2) {
+				for (int j=0; j<D; j+=2) {
+					HAB(i*D+j, i*D+j + D + 1) += Jxy/2;
+					HAB(i*D+j + D + 1, i*D+j) += Jxy/2;
+				}
+			}
+
+			//val = Jz/4;
+			for (int i=0; i<D*D; i++) {
+				if (i%2 == (i/D)%2) 	HAB(i,i) -= Jz/4;
+				else					HAB(i,i) += Jz/4;
+			}
+
+			/*HAB2 = tensorProdIdent(HA,D) + tensorProdIdent(D, HA.reverse())
 					+ Jxy/2 * tensorProdIdent(SminACurr,D)*tensorProdIdent(D,SplusACurr.reverse())
 					+ Jxy/2 * tensorProdIdent(SplusACurr,D)*tensorProdIdent(D,SminACurr.reverse())
 					+ Jz * tensorProdIdent(SzACurr,D)*tensorProdIdent(D,SzACurr.reverse());
+
+			for (int i=0; i<D*D; i++) {
+				for(int j=0; j<D*D; j++) {
+					if (abs(HAB(i,j) - HAB2(i,j)) > 0.0000001) {
+						printf("different (%d,%d)\n", i, j);
+						cout << HAB2.block(i,j,10,10) << endl << endl << HAB.block(i,j,10,10) << endl << endl;
+						abort();
+					}
+				}
+			}*/
+
 
 			// find AB base state using Lanczos
 			DBG(printf("\tfinding AB base state with Lanczos\n"));
@@ -228,11 +249,7 @@ void tryDMRG() {
 			// diagonalize density operator and truncate basis
 			DBG(printf("\tdiagnolaizing density operator\n"));
 			densitySolver.compute(densityMatrix);
-			//transNew2Old = copyResize(densitySolver.eigenvectors(),D,chi);
-			transNew2Old.resize(D,chi);
-			for (int i=0; i<D; i++)
-				for (int j=0; j<chi; j++)
-					transNew2Old(i,j) = densitySolver.eigenvectors()(i,D-chi+j);
+			transNew2Old = densitySolver.eigenvectors().block(0,D-chi,D,chi);
 			transOld2New = transNew2Old.transpose();
 
 			// transform operators to new basis
@@ -249,35 +266,18 @@ void tryDMRG() {
 			SplusAPrev = SplusACurr;
 			HAPrev = HA;
 		}
-
-		n += 2;
 	}
-	printf("Done: n=%d D=%d\n\n",n,D);
-	/*cout << HA  << endl << endl;
-
-	SelfAdjointEigenSolver<MatrixXd> solver(HA);
-	VectorXd outputState = naiveLanczos(HA);
-	cout << "Lanczos output state: " << outputState.transpose() << endl << endl;
-	cout << "HA*(output state): " << (HA*outputState).transpose() << endl << endl;
-
-	cout << "Exact output state: " << solver.eigenvectors().col(0).transpose() << endl << endl;
-	cout << "HA*(output state): " << (HA*solver.eigenvectors().col(0)).transpose() << endl << endl;*/
-
-	/*// find AB base state using Lanczos
-	cout << HA  << endl << endl;
-	//naiveLanczos(HA);
-	//cout << HAB  << endl << endl;
-	ABBaseState = naiveLanczos(HA);
-	std::cout << ABBaseState.transpose() << endl <<endl;
-	std::cout << (HA * ABBaseState).transpose() << endl <<endl;
-
-
-	//cout << HA.reverse()  << endl << endl;*/
+	DBG(printf("Done: n=%d D=%d\n\n",n,D));
 }
 
 int main(int argc, char* argv[])
 {
-	tryDMRG();
+	int N = 16;
+	if (argc > 1) {
+		istringstream iss(argv[1]);
+		if (iss >> N) {};
+	}
+	tryDMRG(N);
 	return 0;
 }
 
