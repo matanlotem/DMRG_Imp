@@ -263,10 +263,10 @@ void newDMRG(int N) {
 
 	MatrixXd *HAPrevBlocks, *SzAPrevBlocks, *SplusAPrevBlocks,
 			 *HACurrBlocks, *SzACurrBlocks, *SplusACurrBlocks;
-	MatrixXd SzTmpBlock;
 	double *SzPrevTot, *SzCurrTot;
 
-	int n=1, b = 2, dim, dim1, dim2, dim3;
+	int n=1, b = 2, dim = 2, dimMax = 2, D=8;
+	int dim1, dim2, dim3;
 	MatrixXd HAMatrix;
 
 	DBG(printf("Creating initial matrices\n"));
@@ -281,7 +281,6 @@ void newDMRG(int N) {
 	HAPrevBlocks[1] = Hz * SzAPrevBlocks[1];
 	SplusAPrevBlocks[0] = MatrixXd(1,1);
 	SplusAPrevBlocks[0] << 1;
-
 	SzPrevTot = new double[b];
 	for (int i=0; i<b; i++) SzPrevTot[i] = i - double(b)/2;
 
@@ -308,43 +307,33 @@ void newDMRG(int N) {
 		SplusACurrBlocks[b-2].setZero();
 		for (int j=0; j<dim2;j++) SplusACurrBlocks[b-2](dim1+j,j) = 1;
 
+		dim = HACurrBlocks[0].rows() + HACurrBlocks[b-1].rows();
+		dimMax = max(HACurrBlocks[0].rows(),HACurrBlocks[b-1].rows());
+
 
 		DBG(printf("Creating new central blocks\n"));
 		for (int i=1; i<b-1; i++) {
 			DBG(printf("\tblock %d\n",i));
 			dim1 = HAPrevBlocks[i-1].rows();
 			dim2 = HAPrevBlocks[i].rows();
+			dim += dim1 + dim2;
 			HACurrBlocks[i] = MatrixXd(dim1+dim2,dim1+dim2);
-			HACurrBlocks[i].setZero();
 			SzACurrBlocks[i] = MatrixXd(dim1+dim2,dim1+dim2);
 			SzACurrBlocks[i].setZero();
 
+			// add spin down block
 			DBG(printf("\tadding spin down block\n"));
 			for (int j=0; j<dim1; j++) SzACurrBlocks[i](j,j) = 0.5;
 			HACurrBlocks[i].block(0,0,dim1,dim1) = HAPrevBlocks[i-1] +
 					Jz * SzAPrevBlocks[i-1] * SzACurrBlocks[i].block(0,0,dim1,dim1);
 			for (int j=0; j<dim1; j++) HACurrBlocks[i](j,j) += 0.5*Hz;
 
-			//SzTmpBlock = Jz * SzAPrevBlocks[i-1] * SzACurrBlocks[i].block(0,0,dim1,dim1);
-			/*for (int j=0; j<dim1; j++) {
-				//for (int k=0; k<dim1; k++)
-				//	HACurrBlocks[i](j,k) = HAPrevBlocks[i-1](j,k) + SzTmpBlock(j,k);
-				HACurrBlocks[i](j,j) += 0.5*Hz;
-			}*/
-
-
+			// add spin up block
 			DBG(printf("\tadding spin up block\n"));
 			for (int j=0; j<dim2; j++) SzACurrBlocks[i](dim1+j,dim1+j) = -0.5;
 			HACurrBlocks[i].block(dim1,dim1,dim2,dim2) = HAPrevBlocks[i] +
 						Jz * SzAPrevBlocks[i] * SzACurrBlocks[i].block(dim1,dim1,dim2,dim2);
 			for (int j=0; j<dim2; j++) HACurrBlocks[i](dim1+j,dim1+j) += -0.5*Hz;
-
-			/*SzTmpBlock = Jz * SzAPrevBlocks[i] * SzACurrBlocks[i].block(dim1,dim1,dim2,dim2);
-			for (int j=0; j<dim2; j++) {
-				for (int k=0; k<dim2; k++)
-					HACurrBlocks[i](dim1+j,dim1+k) = HAPrevBlocks[i](j,k) + SzTmpBlock(j,k);
-				HACurrBlocks[i](dim1+j,dim1+j) += -0.5*Hz;
-			}*/
 
 
 			// add old block movers Jxy/2 * (S+- + S-+)
@@ -362,31 +351,46 @@ void newDMRG(int N) {
 			SzCurrTot[i] = SzPrevTot[i-1] + 0.5;
 		}
 
+		// printing stuff
 		DBG(printf("printing HA\n"));
-		dim = 0;
-		for (int i=0; i<b; i++) dim += HACurrBlocks[i].rows();
 		HAMatrix.resize(dim,dim);
 		HAMatrix.setZero();
 		int ind = 0;
 		for (int i=0; i<b; i++) {
 			dim1 = HACurrBlocks[i].rows();
-			for (int j=0; j<dim1; j++)
-				for (int k=0; k<dim1; k++)
-					HAMatrix(ind+j,ind+k) = HACurrBlocks[i](j,k);
-			ind+=dim1;
+			HAMatrix.block(ind,ind,dim1,dim1) = HACurrBlocks[i];
+			ind += dim1;
 		}
 		cout << HAMatrix << endl << endl;
 		solver.compute(HAMatrix,false);
 		cout << solver.eigenvalues().transpose() << endl << endl;
 
+		// cleaning up and preparing next iteration
 		delete[] HAPrevBlocks;
 		delete[] SzAPrevBlocks;
 		delete[] SplusAPrevBlocks;
 		delete SzPrevTot;
-		HAPrevBlocks = HACurrBlocks;
-		SzAPrevBlocks = SzACurrBlocks;
-		SplusAPrevBlocks = SplusACurrBlocks;
-		SzPrevTot = SzCurrTot;
+
+		if (dimMax <= D) {
+			HAPrevBlocks = HACurrBlocks;
+			SzAPrevBlocks = SzACurrBlocks;
+			SplusAPrevBlocks = SplusACurrBlocks;
+			SzPrevTot = SzCurrTot;
+		}
+		else { //truncate
+			// for each total Sz
+				// prepare AB Hamiltonian
+
+				// find AB base state with Lanczos
+
+			// choose AB base state
+
+			// create density marix
+
+			// diagonalize density matrix
+
+			// transform operators to new basis
+		}
 
 		n++;
 	}
