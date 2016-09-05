@@ -17,6 +17,9 @@
 #include "ABHamiltonian.hpp"
 #include "ABHamiltonianD3.hpp"
 #include "ABHamiltonianFull.hpp"
+#include "SBDMatrix.hpp"
+#include "SBDODMatrix.hpp"
+#include "BDHamiltonian.hpp"
 
 using namespace Eigen;
 using namespace std;
@@ -396,6 +399,294 @@ void newDMRG(int N) {
 	}
 }
 
+SBDMatrix oopLanczos(BDHamiltonian *matrix, SBDMatrix baseState) {
+	printf("1\n");
+	int m = min(500, matrix->dim());
+	double a,b2,norm;
+
+	SBDMatrix prevState(baseState.blockNum()),
+			  currState(baseState.blockNum()),
+			  tmpState(baseState.blockNum()),
+			  outputState(baseState.blockNum());
+	printf("2\n");
+
+	MatrixXd KMatrix(m,m);
+	SelfAdjointEigenSolver<MatrixXd> solver, tmpSolver;
+	KMatrix.setZero();
+
+	//first iteration
+	//currState = baseState;
+	for (int b=0; b<currState.blockNum(); b++) currState[b] = baseState[b];
+
+	norm = currState.norm();
+	norm = norm*norm; // <u_n|u_n>
+	printf("2.5\n");
+	tmpState = matrix->apply(currState); // H|u_n>
+	printf("2.6\n");
+	a = tmpState.dot(currState) / norm; // <u_n|H|u_n>/<u_n|u_n>
+	KMatrix(0,0) = a;
+	printf("2.7\n");
+
+	//prevState = currState;
+	//currState = tmpState - a*currState;
+	for (int b=0; b<currState.blockNum(); b++) {
+		prevState[b] = currState[b];
+		currState[b] = tmpState[b] - a*currState[b];
+	}
+	printf("3\n");
+	int n=1;
+	bool converged = false;
+	double currEv, prevEv=0;
+	//iterate to find base state
+	while (n<m && norm > 0 && !converged) {
+		printf("\t%d\n",n);
+		b2 = 1/norm; // 1/<u_n-1|u_n-1>
+		norm = currState.norm();
+		norm = norm*norm; // <u_n|u_n>
+		b2 *= norm; // <u_n|u_n>/<u_n-1|u_n-1>
+		printf("\t3.1\n");
+		currState.printBlockStats(0);
+		tmpState = matrix->apply(currState); // H|u_n>
+		printf("\t3.15\n");
+		a = tmpState.dot(currState) / norm; // <u_n|H|u_n>/<u_n|u_n>
+		printf("\t3.2\n");
+		KMatrix(n,n) = a;
+		KMatrix(n,n-1) = sqrt(b2);
+		KMatrix(n-1,n) = sqrt(b2);
+
+		printf("\t3.3\n");
+		//tmpState = tmpState - a*currState - b2*prevState;
+		//prevState = currState;
+		//currState = tmpState;
+		for (int b=0; b<currState.blockNum(); b++) {
+			tmpState[b] = tmpState[b] - a*currState[b] - b2*prevState[b];
+			prevState[b] = currState[b];
+			currState[b] = tmpState[b];
+		}
+		printf("\t3.4\n");
+
+		n++;
+
+		// check convergence
+		if (n%10 == 0) {
+			tmpSolver.compute(KMatrix.block(0,0,n,n),false);
+			currEv= tmpSolver.eigenvalues()[0];
+			converged = abs(currEv - prevEv) < 0.00000000000001;
+			prevEv = currEv;
+		}
+		printf("\t3.5\n");
+	}
+	printf("4\n");
+
+	printf("%d iterations\n",n);
+	if (n<m) {
+		MatrixXd tmpKMatrix = KMatrix.block(0,0,n,n);
+		KMatrix = tmpKMatrix;
+		m = n;
+	}
+
+	//diagonalize
+	solver.compute(KMatrix);
+
+	// calculate eigenvector
+	VectorXd minEigenVector = solver.eigenvectors().col(0);
+
+	//currState = baseState;
+	for (int b=0; b<currState.blockNum(); b++) currState[b] = baseState[b];
+
+	//outputState = currState / currState.norm() * minEigenVector(0);
+	for (int b=0; b<currState.blockNum(); b++) outputState[b] = currState[b] / currState.norm() * minEigenVector(0);
+
+	norm = currState.norm();
+	norm = norm*norm; // <u_n|u_n>
+	tmpState = matrix->apply(currState); // H|u_n>
+	a = tmpState.dot(currState) / norm; // <u_n|H|u_n>/<u_n|u_n>
+
+	//prevState = currState;
+	//currState = tmpState - a*currState;
+	for (int b=0; b<currState.blockNum(); b++) {
+		prevState[b] = currState[b];
+		currState[b] = tmpState[b] - a*currState[b];
+	}
+
+	n=1;
+	while (n<m) {
+		//outputState += currState / currState.norm() *minEigenVector(n);;
+		for (int b=0; b<currState.blockNum(); b++) outputState[b] += currState[b] / currState.norm() * minEigenVector(n);
+
+		b2 = 1/norm; // 1/<u_n-1|u_n-1>
+		norm = currState.norm();
+		norm = norm*norm; // <u_n|u_n>
+		b2 *= norm; // <u_n|u_n>/<u_n-1|u_n-1>
+
+		tmpState = matrix->apply(currState); // H|u_n>
+		a = tmpState.dot(currState) / norm; // <u_n|H|u_n>/<u_n|u_n>
+
+
+		//tmpState = tmpState - a*currState - b2*prevState;
+		//prevState = currState;
+		//currState = tmpState;
+		for (int b=0; b<currState.blockNum(); b++) {
+			tmpState[b] = tmpState[b] - a*currState[b] - b2*prevState[b];
+			prevState[b] = currState[b];
+			currState[b] = tmpState[b];
+		}
+
+
+		n++;
+	}
+
+	return outputState;
+}
+
+
+void oopDMRG(int N) {
+	double Jxy=1, Jz=1, Hz=0;
+
+	SBDMatrix *HAPrev, *SzAPrev,
+			  *HACurr, *SzACurr;
+	SBDODMatrix *SplusAPrev, *SplusACurr;
+	BDHamiltonian * HAB;
+	SelfAdjointEigenSolver<MatrixXd> solver;
+	int n=1, b=2, D=8;
+
+	SzAPrev = new SBDMatrix(b);
+	(*SzAPrev)[0] = (MatrixXd::Identity(1,1) * -0.5);
+	(*SzAPrev)[1] = (MatrixXd::Identity(1,1) *  0.5);
+	HAPrev = new SBDMatrix(b);
+	for (int i=0; i<b; i++) {
+		(*HAPrev)[i]=Hz*(*SzAPrev)[i];
+		HAPrev->setBlockValue(i,(*SzAPrev)[i](0,0));
+	}
+
+	SplusAPrev = new SBDODMatrix(HAPrev);
+	(*SplusAPrev)[0] = MatrixXd::Identity(1,1);
+
+	while (n<N) {
+		DBG(printf("Adding site %d\n", n));
+		b++;
+		HACurr = new SBDMatrix(b);
+		SzACurr = new SBDMatrix(b);
+
+		DBG(printf("Creating new edge blocks\n"));
+		(*HACurr)[0] = (*HAPrev)[0] + Jz * -0.5 * (*SzAPrev)[0];
+		(*SzACurr)[0] = -0.5*MatrixXd::Identity((*HACurr)[0].rows(), (*HACurr)[0].cols());
+		(*HACurr)[b-1] = (*HAPrev)[b-2] + Jz * 0.5 * (*SzAPrev)[b-2];
+		(*SzACurr)[b-1] = 0.5*MatrixXd::Identity((*HACurr)[b-1].rows(), (*HACurr)[b-1].cols());
+		HACurr->setBlockValue(0,HAPrev->getBlockValue(0)-0.5);
+		HACurr->setBlockValue(b-1,HAPrev->getBlockValue(b-2)+0.5);
+
+
+		DBG(printf("Creating new central blocks\n"));
+		int dim1, dim2;
+		for (int i=1; i<b-1; i++) {
+			HACurr->setBlockValue(i,HAPrev->getBlockValue(i)-0.5);
+
+			DBG(printf("\tblock %d\n",i));
+			dim1 = (*HAPrev)[i-1].rows();
+			dim2 = (*HAPrev)[i].rows();
+
+			(*HACurr)[i] = MatrixXd(dim1+dim2,dim1+dim2);
+			(*SzACurr)[i] = MatrixXd(dim1+dim2,dim1+dim2);
+			(*SzACurr)[i].setZero();
+
+			// add spin down block
+			DBG(printf("\tadding spin down block\n"));
+			for (int j=0; j<dim1; j++) (*SzACurr)[i](j,j) = 0.5;
+			(*HACurr)[i].topLeftCorner(dim1,dim1) = (*HAPrev)[i-1] +
+					Jz * (*SzAPrev)[i-1] * (*SzACurr)[i].topLeftCorner(dim1,dim1);
+			for (int j=0; j<dim1; j++) (*HACurr)[i](j,j) += 0.5*Hz;
+
+			// add spin up block
+			DBG(printf("\tadding spin up block\n"));
+			for (int j=dim1; j<dim1+dim2; j++) (*SzACurr)[i](j,j) = -0.5;
+			(*HACurr)[i].bottomRightCorner(dim2,dim2) = (*HAPrev)[i] +
+						Jz * (*SzAPrev)[i] * (*SzACurr)[i].bottomRightCorner(dim2,dim2);
+			for (int j=dim1; j<dim1+dim2; j++) (*HACurr)[i](j,j) += -0.5*Hz;
+
+			// add old block movers Jxy/2 * (S+- + S-+)
+			DBG(printf("\tadding Jxy*(S+- + S-+) block\n"));
+			(*HACurr)[i].topRightCorner(dim1,dim2) = Jxy/2 * (*SplusAPrev)[i-1];
+			(*HACurr)[i].bottomLeftCorner(dim2,dim1) = Jxy/2 * (*SplusAPrev)[i-1].transpose();
+		}
+
+		//create new block movers (S+)
+		DBG(printf("creating new S+\n"));
+		SplusACurr = new SBDODMatrix(HACurr);
+		for (int i=0; i<SplusACurr->blockNum(); i++) {
+			(*SplusACurr)[i].setZero();
+			dim1 = (*HAPrev)[i].rows();
+			dim2 = (*HACurr)[i].rows();
+			for (int j=0; j<dim1;j++) (*SplusACurr)[i](dim2-dim1+j,j) = 1;
+		}
+
+		delete SzAPrev;
+		delete HAPrev;
+		delete SplusAPrev;
+
+		// printing stuff
+		DBG(printf("printing HA\n"));
+		HACurr->print();
+		solver.compute(HACurr->toMatrix(),false);
+		cout << solver.eigenvalues().transpose() << endl << endl;
+
+		//if (HACurr->maxBlockDim() <= D) {
+		if (HACurr->dim() <= D) {
+			SzAPrev = SzACurr;
+			HAPrev = HACurr;
+			SplusAPrev = SplusACurr;
+		}
+
+		else { //truncate
+			HAB = new BDHamiltonian(HACurr, SzACurr, SplusACurr, Jxy, Jz, Hz);
+
+			// create base state
+			VectorXd baseState(HAB->dim());
+			baseState.setRandom();
+			baseState = baseState / baseState.norm();
+			SBDMatrix baseStateMatrix(HAB->blockNum());
+			int I, vecInd=0,blockInd=0;
+			for (int i=0; i<HACurr->blockNum(); i++) {
+				I = HACurr->getIndexByValue(0 - HACurr->getBlockValue(i));
+				if (I!=-1) {
+					baseStateMatrix[blockInd].resize((*HACurr)[i].rows(), (*HACurr)[I].rows());
+					for (int j=0; j<(*HACurr)[i].rows(); j++)
+						for (int k=0; k<(*HACurr)[I].rows(); k++)
+							baseStateMatrix[blockInd](j,k) = baseState(vecInd++);
+					blockInd++;
+				}
+			}
+			printf("bbb\n");
+			SBDMatrix ABBaseState = oopLanczos(HAB, baseStateMatrix);
+			printf("ccc\n");
+
+			// for each total Sz
+				// prepare AB Hamiltonian
+
+
+				// find AB base state with Lanczos
+
+			// choose AB base state
+
+			// create density marix
+
+			// diagonalize density matrix
+
+			// transform operators to new basis
+			delete HAB;
+			printf("argh!\n");
+		}
+
+		n++;
+	}
+
+
+
+
+	printf("yay!\n");
+
+}
+
 void testHAB(int N) {
 	double Jxy=11, Jz=13, Hz=0;
 
@@ -496,6 +787,25 @@ void testHAB(int N) {
 
 }
 
+void memoryTests(int N) {
+	int d = (1<<N);
+	int x;
+	MatrixXd m,tmp;
+	m.resize(d,d);
+	m.setZero();
+	tmp.resize(d,d);
+	for (int i=0; i<6; i++) {
+		cout << "bla: ";
+		cin >> x;
+		tmp.resize(d,d);
+		std::srand(i);
+		tmp.setRandom();
+		m = 2*m + tmp + tmp;
+		m = tmp;
+	}
+
+}
+
 
 
 int main(int argc, char* argv[])
@@ -509,7 +819,9 @@ int main(int argc, char* argv[])
 	t0 = clock();
 	//tryDMRG(N);
 	//testHAB(N);
-	newDMRG(N);
+	//newDMRG(N);
+	oopDMRG(N);
+	//memoryTests(N);
 	t1 = clock();
 	printf("TOTAL TIME: %f SECONDS\n",double(t1-t0)/CLOCKS_PER_SEC);
 	return 0;

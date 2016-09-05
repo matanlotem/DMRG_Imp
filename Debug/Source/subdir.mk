@@ -4,12 +4,18 @@
 
 # Add inputs and outputs from these tool invocations to the build variables 
 CPP_SRCS += \
+../Source/SBDMatrix.cpp \
+../Source/SBDODMatrix.cpp \
 ../Source/main.cpp 
 
 OBJS += \
+./Source/SBDMatrix.o \
+./Source/SBDODMatrix.o \
 ./Source/main.o 
 
 CPP_DEPS += \
+./Source/SBDMatrix.d \
+./Source/SBDODMatrix.d \
 ./Source/main.d 
 
 
