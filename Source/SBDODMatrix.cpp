@@ -72,6 +72,15 @@ void SBDODMatrix::print() {
 	cout << toMatrix() << endl;
 }
 
+void SBDODMatrix::printStats() {
+	printf("dim: %dx%d, blocks: %d\n", rows(), cols(), b);
+}
+
+void SBDODMatrix::printBlockStats(int index) {
+	printf("\tblock %d dim: %dx%d\n", index, (int) blocks[index].rows(), (int) blocks[index].cols());
+}
+
+
 
 int SBDODMatrix::dim() {return rows();}
 

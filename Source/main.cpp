@@ -400,7 +400,6 @@ void newDMRG(int N) {
 }
 
 SBDMatrix oopLanczos(BDHamiltonian *matrix, SBDMatrix baseState) {
-	printf("1\n");
 	int m = min(500, matrix->dim());
 	double a,b2,norm;
 
@@ -408,62 +407,43 @@ SBDMatrix oopLanczos(BDHamiltonian *matrix, SBDMatrix baseState) {
 			  currState(baseState.blockNum()),
 			  tmpState(baseState.blockNum()),
 			  outputState(baseState.blockNum());
-	printf("2\n");
 
 	MatrixXd KMatrix(m,m);
 	SelfAdjointEigenSolver<MatrixXd> solver, tmpSolver;
 	KMatrix.setZero();
 
 	//first iteration
-	//currState = baseState;
-	for (int b=0; b<currState.blockNum(); b++) currState[b] = baseState[b];
+	currState = baseState;
 
 	norm = currState.norm();
 	norm = norm*norm; // <u_n|u_n>
-	printf("2.5\n");
 	tmpState = matrix->apply(currState); // H|u_n>
-	printf("2.6\n");
 	a = tmpState.dot(currState) / norm; // <u_n|H|u_n>/<u_n|u_n>
 	KMatrix(0,0) = a;
-	printf("2.7\n");
 
-	//prevState = currState;
+	prevState = currState;
 	//currState = tmpState - a*currState;
-	for (int b=0; b<currState.blockNum(); b++) {
-		prevState[b] = currState[b];
-		currState[b] = tmpState[b] - a*currState[b];
-	}
-	printf("3\n");
+	for (int b=0; b<currState.blockNum(); b++) currState[b] = tmpState[b] - a*currState[b];
+
 	int n=1;
 	bool converged = false;
 	double currEv, prevEv=0;
 	//iterate to find base state
 	while (n<m && norm > 0 && !converged) {
-		printf("\t%d\n",n);
 		b2 = 1/norm; // 1/<u_n-1|u_n-1>
 		norm = currState.norm();
 		norm = norm*norm; // <u_n|u_n>
 		b2 *= norm; // <u_n|u_n>/<u_n-1|u_n-1>
-		printf("\t3.1\n");
-		currState.printBlockStats(0);
 		tmpState = matrix->apply(currState); // H|u_n>
-		printf("\t3.15\n");
 		a = tmpState.dot(currState) / norm; // <u_n|H|u_n>/<u_n|u_n>
-		printf("\t3.2\n");
 		KMatrix(n,n) = a;
 		KMatrix(n,n-1) = sqrt(b2);
 		KMatrix(n-1,n) = sqrt(b2);
 
-		printf("\t3.3\n");
 		//tmpState = tmpState - a*currState - b2*prevState;
-		//prevState = currState;
-		//currState = tmpState;
-		for (int b=0; b<currState.blockNum(); b++) {
-			tmpState[b] = tmpState[b] - a*currState[b] - b2*prevState[b];
-			prevState[b] = currState[b];
-			currState[b] = tmpState[b];
-		}
-		printf("\t3.4\n");
+		for (int b=0; b<currState.blockNum(); b++) tmpState[b] = tmpState[b] - a*currState[b] - b2*prevState[b];
+		prevState = currState;
+		currState = tmpState;
 
 		n++;
 
@@ -474,9 +454,7 @@ SBDMatrix oopLanczos(BDHamiltonian *matrix, SBDMatrix baseState) {
 			converged = abs(currEv - prevEv) < 0.00000000000001;
 			prevEv = currEv;
 		}
-		printf("\t3.5\n");
 	}
-	printf("4\n");
 
 	printf("%d iterations\n",n);
 	if (n<m) {
@@ -491,8 +469,7 @@ SBDMatrix oopLanczos(BDHamiltonian *matrix, SBDMatrix baseState) {
 	// calculate eigenvector
 	VectorXd minEigenVector = solver.eigenvectors().col(0);
 
-	//currState = baseState;
-	for (int b=0; b<currState.blockNum(); b++) currState[b] = baseState[b];
+	currState = baseState;
 
 	//outputState = currState / currState.norm() * minEigenVector(0);
 	for (int b=0; b<currState.blockNum(); b++) outputState[b] = currState[b] / currState.norm() * minEigenVector(0);
@@ -502,12 +479,9 @@ SBDMatrix oopLanczos(BDHamiltonian *matrix, SBDMatrix baseState) {
 	tmpState = matrix->apply(currState); // H|u_n>
 	a = tmpState.dot(currState) / norm; // <u_n|H|u_n>/<u_n|u_n>
 
-	//prevState = currState;
+	prevState = currState;
 	//currState = tmpState - a*currState;
-	for (int b=0; b<currState.blockNum(); b++) {
-		prevState[b] = currState[b];
-		currState[b] = tmpState[b] - a*currState[b];
-	}
+	for (int b=0; b<currState.blockNum(); b++) currState[b] = tmpState[b] - a*currState[b];
 
 	n=1;
 	while (n<m) {
@@ -524,14 +498,9 @@ SBDMatrix oopLanczos(BDHamiltonian *matrix, SBDMatrix baseState) {
 
 
 		//tmpState = tmpState - a*currState - b2*prevState;
-		//prevState = currState;
-		//currState = tmpState;
-		for (int b=0; b<currState.blockNum(); b++) {
-			tmpState[b] = tmpState[b] - a*currState[b] - b2*prevState[b];
-			prevState[b] = currState[b];
-			currState[b] = tmpState[b];
-		}
-
+		for (int b=0; b<currState.blockNum(); b++) tmpState[b] = tmpState[b] - a*currState[b] - b2*prevState[b];
+		prevState = currState;
+		currState = tmpState;
 
 		n++;
 	}
@@ -656,9 +625,11 @@ void oopDMRG(int N) {
 					blockInd++;
 				}
 			}
-			printf("bbb\n");
+
 			SBDMatrix ABBaseState = oopLanczos(HAB, baseStateMatrix);
-			printf("ccc\n");
+			//ABBaseState.print();
+			DBG(printf("base Ev: %f\n",HAB->apply(ABBaseState).norm()));
+
 
 			// for each total Sz
 				// prepare AB Hamiltonian
@@ -675,6 +646,10 @@ void oopDMRG(int N) {
 			// transform operators to new basis
 			delete HAB;
 			printf("argh!\n");
+
+			SzAPrev = SzACurr;
+			HAPrev = HACurr;
+			SplusAPrev = SplusACurr;
 		}
 
 		n++;

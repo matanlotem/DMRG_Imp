@@ -8,16 +8,17 @@
 #ifndef SBDMATRIX_HPP_
 #define SBDMATRIX_HPP_
 
+#include <vector>
 #include <Eigen/Core>
 using namespace Eigen;
 
 class SBDMatrix {
 private:
 	int b;
-	double * blockValues;
+	std::vector<double> blockValues;
 
 public:
-	MatrixXd * blocks;
+	std::vector<MatrixXd> blocks;
 	SBDMatrix(int b);
 	SBDMatrix(SBDMatrix * matrix, VectorXd * vector);
 	~SBDMatrix();

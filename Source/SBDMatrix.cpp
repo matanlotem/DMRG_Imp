@@ -10,6 +10,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <iostream>
+#include <vector>
 #include <algorithm>
 #include <Eigen/Core>
 
@@ -17,20 +18,19 @@ using namespace Eigen;
 using namespace std;
 
 SBDMatrix::SBDMatrix(int b) : b(b) {
-	blocks = new MatrixXd[b];
-	blockValues = new double[b];
+	//blocks = new MatrixXd[b];
+	//blockValues = new double[b];
+	blocks.resize(b);
+	blockValues.resize(b);
 	for (int i=0; i<b; i++) blocks[i] = MatrixXd(0,0);
 }
 
 SBDMatrix::SBDMatrix(SBDMatrix * matrix, VectorXd * vector) {
-	printf("a\n");
 	b = matrix->blockNum();
-	blocks = new MatrixXd[b];
-	blockValues = new double[b];
-	printf("b\n");
+	blocks.resize(b);
+	blockValues.resize(b);
 	int ind=0, rows, cols;
 	for (int i=0; i<b; i++){
-		printf("\t%d\n",i);
 		rows = (*matrix)[i].rows();
 		cols = (*matrix)[i].cols();
 
@@ -40,21 +40,20 @@ SBDMatrix::SBDMatrix(SBDMatrix * matrix, VectorXd * vector) {
 				blocks[i](j,k) = (*vector)(j*rows+k+ind);
 		ind+=rows*cols;
 	}
-	printf("c\n");
+
 	if (ind != matrix->rows() * matrix->cols()) {
 		printf("ind=%d  matrix: %dx%d\n",ind, matrix->rows(), matrix->cols());
 		throw "matrix-vector dimensions don't match!";
 		abort();
 	}
-	printf("d\n");
 
 }
 
 SBDMatrix::~SBDMatrix() {
-	printf("Destructor %d started\n",this);
-	delete[] blocks;
-	delete[] blockValues;
-	printf("Destructor %d done\n",this);
+	//printf("Destructor %d started\n",this);
+	//delete[] blocks;
+	//delete[] blockValues;
+	//printf("Destructor %d done\n",this);
 }
 
 int SBDMatrix::blockNum() {return b;}
@@ -190,10 +189,8 @@ double SBDMatrix::dot(SBDMatrix matrix) {
 void SBDMatrix::operator=(SBDMatrix matrix) {
 	if (b != matrix.blockNum()) {
 		b = matrix.blockNum();
-		delete[] blocks;
-		delete[] blockValues;
-		blocks = new MatrixXd[b];
-		blockValues = new double[b];
+		blocks.resize(b);
+		blockValues.resize(b);
 	}
 	for (int i=0; i<blockNum(); i++) {
 		blocks[i] = matrix[i];

@@ -30,6 +30,8 @@ public:
 
 	MatrixXd toMatrix();
 	void print();
+	void printStats();
+	void printBlockStats(const int index);
 };
 
 

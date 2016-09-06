@@ -40,36 +40,39 @@ BDHamiltonian::BDHamiltonian(SBDMatrix * HA, SBDMatrix * SzA, SBDODMatrix * Splu
 }
 
 BDHamiltonian::BDHamiltonian(SBDMatrix * HA, SBDMatrix * SzA, SBDODMatrix * SplusA, double Jxy, double Jz, double Hz, double SzTot) :
-		HA(HA), SzA(SzA), SplusA(SplusA), Jxy(Jxy), Jz(Jz), Hz(Hz), SzTot(SzTot){}
+		HA(HA), SzA(SzA), SplusA(SplusA), Jxy(Jxy), Jz(Jz), Hz(Hz), SzTot(SzTot){
+}
 
 BDHamiltonian::~BDHamiltonian() {
-	delete HA;
+	/*delete HA;
 	delete SzA;
-	delete SplusA;
+	delete SplusA;*/
 }
 
 void BDHamiltonian::setSzTot(double szTot) {SzTot = szTot;}
 double BDHamiltonian::getSzTot() {return SzTot;}
 
 SBDMatrix BDHamiltonian::apply(SBDMatrix vector) {
-	/*return apply(vector, SzTot);
+	return apply(vector, SzTot);
 }
 
-SBDMatrix BDHamiltonian::apply(SBDMatrix vector, double szTot) {*/
-	double szTot = SzTot;
-	printf("aa\n");
+SBDMatrix BDHamiltonian::apply(SBDMatrix vector, double szTot) {
 	SBDMatrix newVector(vector.blockNum());
 	int I;
-	printf("bb\n");
 	for (int i=0; i<HA->blockNum(); i++) {
 		I = HA->getIndexByValue(szTot - HA->getBlockValue(i));
 		if (I!=-1) {
 			newVector[i] = (*HA)[i] * vector[i] + ((*HA)[I].reverse()*(vector[i].transpose())).transpose();
-			//(*HA)[i] * ((*HA)[I].reverse()*(*vector)[i].transpose()).transpose()
+			for (int j=0; j<newVector[i].rows(); j++)
+				for (int k=0; k<newVector[i].cols(); k++)
+					newVector[i](j,k) += Jz * vector[i](k,j) * (*SzA)[i](j,j) * (*SzA)[I]((*SzA)[I].rows()-1-k,(*SzA)[I].rows()-1-k);
+			if (i>0) {
+				newVector[i-1] += Jxy/2 * (*SplusA)[i-1] * (vector[i]*(*SplusA)[I].reverse());
+				newVector[i]   += Jxy/2 * (*SplusA)[i-1].transpose() * ((*SplusA)[I].reverse()*vector[i-1].transpose()).transpose();
+			}
+			//(*HA)[i] * ((*HA)[I].reverse()*vector[i].transpose()).transpose()
 		}
 	}
-	printf("cc\n");
-	printf("%d %d\n", &vector, &newVector);
 	return newVector;
 }
 
