@@ -18,20 +18,39 @@ using namespace Eigen;
 using namespace std;
 
 SBDODMatrix::SBDODMatrix(int b) : b(b) {
-	blocks = new MatrixXd[b];
+	blocks.resize(b);
 	for (int i=0; i<b; i++) blocks[i] = MatrixXd(0,0);
 }
 
 SBDODMatrix::SBDODMatrix(SBDMatrix *matrix) {
-	b = matrix->blockNum()-1;
-	blocks = new MatrixXd[blockNum()];
+	resize(matrix->blockNum()-1);
 	for (int i=0; i<b; i++)
 		blocks[i] = MatrixXd((*matrix)[i].rows(),(*matrix)[i+1].cols());
 }
 
 SBDODMatrix::~SBDODMatrix() {
-	delete[] blocks;
+	//delete[] blocks;
 }
+
+void SBDODMatrix::operator=(SBDODMatrix matrix) {
+	resize(matrix.blockNum());
+	for (int i=0; i<blockNum(); i++)
+		blocks[i] = matrix[i];
+}
+
+void SBDODMatrix::resize(int newBlockNum) {
+	if (b != newBlockNum) {
+		b = newBlockNum;
+		blocks.resize(b);
+	}
+}
+
+void SBDODMatrix::resize(SBDMatrix *matrix) {
+	resize(matrix->blockNum()-1);
+	for (int i=0; i<b; i++)
+		blocks[i] = MatrixXd((*matrix)[i].rows(),(*matrix)[i+1].cols());
+}
+
 
 int SBDODMatrix::blockNum() {return b;}
 

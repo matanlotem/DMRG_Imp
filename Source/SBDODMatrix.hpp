@@ -10,12 +10,13 @@
 
 #include "SBDMatrix.hpp"
 #include <Eigen/Core>
+#include <vector>
 using namespace Eigen;
 
 class SBDODMatrix {
 private:
 	int b;
-	MatrixXd * blocks;
+	std::vector<MatrixXd> blocks;
 
 public:
 	SBDODMatrix(int b);
@@ -27,6 +28,9 @@ public:
 	int rows();
 	int cols();
 	MatrixXd& operator[] (const int index);
+	void operator=(SBDODMatrix matrix);
+	void resize(int newBlockNum);
+	void resize(SBDMatrix *matrix);
 
 	MatrixXd toMatrix();
 	void print();

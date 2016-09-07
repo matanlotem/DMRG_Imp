@@ -26,9 +26,7 @@ SBDMatrix::SBDMatrix(int b) : b(b) {
 }
 
 SBDMatrix::SBDMatrix(SBDMatrix * matrix, VectorXd * vector) {
-	b = matrix->blockNum();
-	blocks.resize(b);
-	blockValues.resize(b);
+	resize(blockNum());
 	int ind=0, rows, cols;
 	for (int i=0; i<b; i++){
 		rows = (*matrix)[i].rows();
@@ -187,15 +185,18 @@ double SBDMatrix::dot(SBDMatrix matrix) {
 }
 
 void SBDMatrix::operator=(SBDMatrix matrix) {
-	if (b != matrix.blockNum()) {
-		b = matrix.blockNum();
-		blocks.resize(b);
-		blockValues.resize(b);
-	}
+	resize(matrix.blockNum());
 	for (int i=0; i<blockNum(); i++) {
 		blocks[i] = matrix[i];
 		blockValues[i] = matrix.getBlockValue(i);
 	}
 }
 
+void SBDMatrix::resize(int newBlockNum) {
+	if (b != newBlockNum) {
+		b = newBlockNum;
+		blocks.resize(b);
+		blockValues.resize(b);
+	}
+}
 

@@ -41,6 +41,7 @@ public:
 	double norm();
 	double dot(SBDMatrix matrix);
 	void operator=(SBDMatrix matrix);
+	void resize(int newBlockNum);
 	SBDMatrix operator+ (SBDMatrix matrix);
 	SBDMatrix operator- (SBDMatrix matrix);
 	SBDMatrix operator* (SBDMatrix matrix);

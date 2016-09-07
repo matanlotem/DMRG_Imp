@@ -10,6 +10,7 @@
 #include <sstream>
 #include <algorithm>
 #include <ctime>
+#include <vector>
 //#include <Eigen/Dense>
 #include <Eigen/Core>
 #include <Eigen/Eigenvalues>
@@ -512,138 +513,199 @@ SBDMatrix oopLanczos(BDHamiltonian *matrix, SBDMatrix baseState) {
 void oopDMRG(int N) {
 	double Jxy=1, Jz=1, Hz=0;
 
-	SBDMatrix *HAPrev, *SzAPrev,
-			  *HACurr, *SzACurr;
-	SBDODMatrix *SplusAPrev, *SplusACurr;
+	int n=1, b=2, D=8;
+	SBDMatrix HAPrev(b), SzAPrev(b),
+			  HACurr(b), SzACurr(b),
+			  DensityMatrix(b);
+	SBDODMatrix SplusAPrev(b-1), SplusACurr(b-1);
 	BDHamiltonian * HAB;
 	SelfAdjointEigenSolver<MatrixXd> solver;
-	int n=1, b=2, D=8;
+	vector<SelfAdjointEigenSolver<MatrixXd> > blockSolvers;
+	vector<int> newBasisVectors;
 
-	SzAPrev = new SBDMatrix(b);
-	(*SzAPrev)[0] = (MatrixXd::Identity(1,1) * -0.5);
-	(*SzAPrev)[1] = (MatrixXd::Identity(1,1) *  0.5);
-	HAPrev = new SBDMatrix(b);
+
+	//SzAPrev = new SBDMatrix(b);
+	SzAPrev[0] = (MatrixXd::Identity(1,1) * -0.5);
+	SzAPrev[1] = (MatrixXd::Identity(1,1) *  0.5);
+	//HAPrev = new SBDMatrix(b);
 	for (int i=0; i<b; i++) {
-		(*HAPrev)[i]=Hz*(*SzAPrev)[i];
-		HAPrev->setBlockValue(i,(*SzAPrev)[i](0,0));
+		HAPrev[i]=Hz*SzAPrev[i];
+		HAPrev.setBlockValue(i,SzAPrev[i](0,0));
 	}
 
-	SplusAPrev = new SBDODMatrix(HAPrev);
-	(*SplusAPrev)[0] = MatrixXd::Identity(1,1);
+	SplusAPrev.resize(&HAPrev);
+	SplusAPrev[0] = MatrixXd::Identity(1,1);
 
 	while (n<N) {
 		DBG(printf("Adding site %d\n", n));
 		b++;
-		HACurr = new SBDMatrix(b);
-		SzACurr = new SBDMatrix(b);
+		//HACurr = new SBDMatrix(b);
+		//SzACurr = new SBDMatrix(b);
+		HACurr.resize(b);
+		SzACurr.resize(b);
 
 		DBG(printf("Creating new edge blocks\n"));
-		(*HACurr)[0] = (*HAPrev)[0] + Jz * -0.5 * (*SzAPrev)[0];
-		(*SzACurr)[0] = -0.5*MatrixXd::Identity((*HACurr)[0].rows(), (*HACurr)[0].cols());
-		(*HACurr)[b-1] = (*HAPrev)[b-2] + Jz * 0.5 * (*SzAPrev)[b-2];
-		(*SzACurr)[b-1] = 0.5*MatrixXd::Identity((*HACurr)[b-1].rows(), (*HACurr)[b-1].cols());
-		HACurr->setBlockValue(0,HAPrev->getBlockValue(0)-0.5);
-		HACurr->setBlockValue(b-1,HAPrev->getBlockValue(b-2)+0.5);
-
+		HACurr[0] = HAPrev[0] + Jz * -0.5 * SzAPrev[0];
+		SzACurr[0] = -0.5*MatrixXd::Identity(HACurr[0].rows(), HACurr[0].cols());
+		HACurr[b-1] = HAPrev[b-2] + Jz * 0.5 * SzAPrev[b-2];
+		SzACurr[b-1] = 0.5*MatrixXd::Identity(HACurr[b-1].rows(), HACurr[b-1].cols());
+		HACurr.setBlockValue(0,HAPrev.getBlockValue(0)-0.5);
+		HACurr.setBlockValue(b-1,HAPrev.getBlockValue(b-2)+0.5);
 
 		DBG(printf("Creating new central blocks\n"));
 		int dim1, dim2;
 		for (int i=1; i<b-1; i++) {
-			HACurr->setBlockValue(i,HAPrev->getBlockValue(i)-0.5);
+			HACurr.setBlockValue(i,HAPrev.getBlockValue(i)-0.5);
 
 			DBG(printf("\tblock %d\n",i));
-			dim1 = (*HAPrev)[i-1].rows();
-			dim2 = (*HAPrev)[i].rows();
+			dim1 = HAPrev[i-1].rows();
+			dim2 = HAPrev[i].rows();
 
-			(*HACurr)[i] = MatrixXd(dim1+dim2,dim1+dim2);
-			(*SzACurr)[i] = MatrixXd(dim1+dim2,dim1+dim2);
-			(*SzACurr)[i].setZero();
+			HACurr[i] = MatrixXd(dim1+dim2,dim1+dim2);
+			SzACurr[i] = MatrixXd(dim1+dim2,dim1+dim2);
+			SzACurr[i].setZero();
 
 			// add spin down block
 			DBG(printf("\tadding spin down block\n"));
-			for (int j=0; j<dim1; j++) (*SzACurr)[i](j,j) = 0.5;
-			(*HACurr)[i].topLeftCorner(dim1,dim1) = (*HAPrev)[i-1] +
-					Jz * (*SzAPrev)[i-1] * (*SzACurr)[i].topLeftCorner(dim1,dim1);
-			for (int j=0; j<dim1; j++) (*HACurr)[i](j,j) += 0.5*Hz;
+			for (int j=0; j<dim1; j++) SzACurr[i](j,j) = 0.5;
+			HACurr[i].topLeftCorner(dim1,dim1) = HAPrev[i-1] +
+					Jz * SzAPrev[i-1] * SzACurr[i].topLeftCorner(dim1,dim1);
+			for (int j=0; j<dim1; j++) HACurr[i](j,j) += 0.5*Hz;
 
 			// add spin up block
 			DBG(printf("\tadding spin up block\n"));
-			for (int j=dim1; j<dim1+dim2; j++) (*SzACurr)[i](j,j) = -0.5;
-			(*HACurr)[i].bottomRightCorner(dim2,dim2) = (*HAPrev)[i] +
-						Jz * (*SzAPrev)[i] * (*SzACurr)[i].bottomRightCorner(dim2,dim2);
-			for (int j=dim1; j<dim1+dim2; j++) (*HACurr)[i](j,j) += -0.5*Hz;
+			for (int j=dim1; j<dim1+dim2; j++) SzACurr[i](j,j) = -0.5;
+			HACurr[i].bottomRightCorner(dim2,dim2) = HAPrev[i] +
+						Jz * SzAPrev[i] * SzACurr[i].bottomRightCorner(dim2,dim2);
+			for (int j=dim1; j<dim1+dim2; j++) HACurr[i](j,j) += -0.5*Hz;
 
 			// add old block movers Jxy/2 * (S+- + S-+)
 			DBG(printf("\tadding Jxy*(S+- + S-+) block\n"));
-			(*HACurr)[i].topRightCorner(dim1,dim2) = Jxy/2 * (*SplusAPrev)[i-1];
-			(*HACurr)[i].bottomLeftCorner(dim2,dim1) = Jxy/2 * (*SplusAPrev)[i-1].transpose();
+			HACurr[i].topRightCorner(dim1,dim2) = Jxy/2 * SplusAPrev[i-1];
+			HACurr[i].bottomLeftCorner(dim2,dim1) = Jxy/2 * SplusAPrev[i-1].transpose();
 		}
 
 		//create new block movers (S+)
 		DBG(printf("creating new S+\n"));
-		SplusACurr = new SBDODMatrix(HACurr);
-		for (int i=0; i<SplusACurr->blockNum(); i++) {
-			(*SplusACurr)[i].setZero();
-			dim1 = (*HAPrev)[i].rows();
-			dim2 = (*HACurr)[i].rows();
-			for (int j=0; j<dim1;j++) (*SplusACurr)[i](dim2-dim1+j,j) = 1;
+		SplusACurr.resize(&HACurr);
+		for (int i=0; i<SplusACurr.blockNum(); i++) {
+			SplusACurr[i].setZero();
+			dim1 = HAPrev[i].rows();
+			dim2 = HACurr[i].rows();
+			for (int j=0; j<dim1;j++) SplusACurr[i](dim2-dim1+j,j) = 1;
 		}
 
-		delete SzAPrev;
-		delete HAPrev;
-		delete SplusAPrev;
+		//delete SzAPrev;
+		//delete HAPrev;
+		//delete SplusAPrev;
 
 		// printing stuff
 		DBG(printf("printing HA\n"));
-		HACurr->print();
-		solver.compute(HACurr->toMatrix(),false);
+		HACurr.print();
+		solver.compute(HACurr.toMatrix(),false);
 		cout << solver.eigenvalues().transpose() << endl << endl;
 
 		//if (HACurr->maxBlockDim() <= D) {
-		if (HACurr->dim() <= D) {
+		if (HACurr.dim() <= D) {
 			SzAPrev = SzACurr;
 			HAPrev = HACurr;
 			SplusAPrev = SplusACurr;
 		}
 
 		else { //truncate
-			HAB = new BDHamiltonian(HACurr, SzACurr, SplusACurr, Jxy, Jz, Hz);
+			DBG(printf("creating AB Hamiltonian\n"));
+			HAB = new BDHamiltonian(&HACurr, &SzACurr, &SplusACurr, Jxy, Jz, Hz);
 
 			// create base state
+			DBG(printf("creating AB initial base state\n"));
 			VectorXd baseState(HAB->dim());
 			baseState.setRandom();
 			baseState = baseState / baseState.norm();
 			SBDMatrix baseStateMatrix(HAB->blockNum());
 			int I, vecInd=0,blockInd=0;
-			for (int i=0; i<HACurr->blockNum(); i++) {
-				I = HACurr->getIndexByValue(0 - HACurr->getBlockValue(i));
+			for (int i=0; i<HACurr.blockNum(); i++) {
+				I = HACurr.getIndexByValue(0 - HACurr.getBlockValue(i));
 				if (I!=-1) {
-					baseStateMatrix[blockInd].resize((*HACurr)[i].rows(), (*HACurr)[I].rows());
-					for (int j=0; j<(*HACurr)[i].rows(); j++)
-						for (int k=0; k<(*HACurr)[I].rows(); k++)
+					baseStateMatrix[blockInd].resize(HACurr[i].rows(), HACurr[I].rows());
+					for (int j=0; j<HACurr[i].rows(); j++)
+						for (int k=0; k<HACurr[I].rows(); k++)
 							baseStateMatrix[blockInd](j,k) = baseState(vecInd++);
+					baseStateMatrix.setBlockValue(blockInd, HACurr.getBlockValue(i));
 					blockInd++;
 				}
 			}
 
+			// find AB base state with Lanczos
+			DBG(printf("finding AB base state wit Lanczos\n"));
 			SBDMatrix ABBaseState = oopLanczos(HAB, baseStateMatrix);
 			//ABBaseState.print();
 			DBG(printf("base Ev: %f\n",HAB->apply(ABBaseState).norm()));
 
-
-			// for each total Sz
-				// prepare AB Hamiltonian
-
-
-				// find AB base state with Lanczos
-
-			// choose AB base state
-
-			// create density marix
+			// create density matrix
+			DBG(printf("creating A density matrix\n"));
+			DensityMatrix.resize(HAB->blockNum());
+			for (int i=0; i<DensityMatrix.blockNum(); i++)
+				DensityMatrix[i] = ABBaseState[i].transpose()*ABBaseState[i];
 
 			// diagonalize density matrix
+			DBG(printf("diagonalizing A density matrix\n"));
+			blockSolvers.resize(DensityMatrix.blockNum());
+			for (int i=0; i<DensityMatrix.blockNum(); i++)
+				blockSolvers[i].compute(DensityMatrix[i]);
+
+			// calc maximum eigenvalue
+			double maxEv = blockSolvers[0].eigenvalues()[0], minEv;
+			for (int i=0; i<(int) blockSolvers.size(); i++)
+				maxEv = max(maxEv,(double) blockSolvers[i].eigenvalues()[DensityMatrix[i].rows()-1]);
+
+			// select new basis vectors
+			DBG(printf("selecting new basis vectors\n"));
+			newBasisVectors.resize(DensityMatrix.blockNum());
+			for (int i=0; i<(int) newBasisVectors.size(); i++) newBasisVectors[i] = 0;
+
+			int vectorNum = 0, currBlock = 0;
+			while (vectorNum < D) {
+				minEv = maxEv;
+				currBlock = 0;
+				for (int i=0; i<(int) newBasisVectors.size(); i++) {
+					if (newBasisVectors[i] < DensityMatrix[i].rows()) {
+						if (blockSolvers[i].eigenvalues()[newBasisVectors[i]] < minEv) {
+							minEv = blockSolvers[i].eigenvalues()[newBasisVectors[i]];
+							currBlock = i;
+						}
+					}
+				}
+				newBasisVectors[currBlock]++;
+				vectorNum++;
+			}
+
+			// count truncated basis blocks;
+			b = 0;
+			for (int i=0; i<(int) newBasisVectors.size(); i++)
+				if (newBasisVectors[i] > 0) b++;
 
 			// transform operators to new basis
+			DBG(printf("transform matrixes to new basis\n"));
+			SzAPrev.resize(b);
+			HAPrev.resize(b);
+			SplusAPrev.resize(b-1);
+
+			blockInd = 0;
+
+			for (int i=0; i < (int) newBasisVectors.size(); i++) {
+				if (newBasisVectors[i] > 0) {
+					SzAPrev[blockInd] = blockSolvers[i].eigenvectors().leftCols(newBasisVectors[i]).transpose() *
+							            SzACurr[i] * blockSolvers[i].eigenvectors().leftCols(newBasisVectors[i]);
+					HAPrev[blockInd] = blockSolvers[i].eigenvectors().leftCols(newBasisVectors[i]).transpose() *
+									   HACurr[i] * blockSolvers[i].eigenvectors().leftCols(newBasisVectors[i]);
+					if (blockInd>0)
+						SplusAPrev[blockInd-1] = blockSolvers[i-1].eigenvectors().leftCols(newBasisVectors[i-1]).transpose() *
+											     SplusACurr[i-1] * blockSolvers[i].eigenvectors().leftCols(newBasisVectors[i]);
+
+					blockInd++;
+				}
+			}
+
 			delete HAB;
 			printf("argh!\n");
 
