@@ -30,10 +30,12 @@ public:
 	MatrixXd toMatrix();
 	void print();
 	void printStats();
+	void printFullStats();
 	void printBlockStats(const int index);
 
-	int dim();
-	int maxBlockDim();
+	//int dim();
+	//int maxBlockDim();
+
 	double getBlockValue(const int index);
 	void setBlockValue(const int index, double value);
 	int getIndexByValue(double value);
@@ -44,14 +46,15 @@ public:
 	void resize(int newBlockNum);
 	SBDMatrix operator+ (SBDMatrix matrix);
 	SBDMatrix operator- (SBDMatrix matrix);
-	SBDMatrix operator* (SBDMatrix matrix);
+
+	/*SBDMatrix operator* (SBDMatrix matrix);
 	SBDMatrix operator* (double scalar);
 	SBDMatrix operator/ (SBDMatrix matrix);
-	SBDMatrix operator/ (double scalar);
+	SBDMatrix operator/ (double scalar);*/
 
-
+	VectorXd flatten();
 };
 
-SBDMatrix operator* (double scalar, SBDMatrix matrix);
+//SBDMatrix operator* (double scalar, SBDMatrix matrix);
 
 #endif /* SBDMATRIX_HPP_ */

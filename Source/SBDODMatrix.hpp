@@ -35,6 +35,7 @@ public:
 	MatrixXd toMatrix();
 	void print();
 	void printStats();
+	void printFullStats();
 	void printBlockStats(const int index);
 };
 

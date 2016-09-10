@@ -32,6 +32,10 @@ public:
 	int dim(double szTot);
 	int blockNum();
 	int blockNum(double szTot);
+
+	MatrixXd toMatrix();
+	void print();
+
 };
 
 BDHamiltonian::BDHamiltonian(SBDMatrix * HA, SBDMatrix * SzA, SBDODMatrix * SplusA, double Jxy, double Jz, double Hz) :
@@ -43,11 +47,7 @@ BDHamiltonian::BDHamiltonian(SBDMatrix * HA, SBDMatrix * SzA, SBDODMatrix * Splu
 		HA(HA), SzA(SzA), SplusA(SplusA), Jxy(Jxy), Jz(Jz), Hz(Hz), SzTot(SzTot){
 }
 
-BDHamiltonian::~BDHamiltonian() {
-	/*delete HA;
-	delete SzA;
-	delete SplusA;*/
-}
+BDHamiltonian::~BDHamiltonian() {}
 
 void BDHamiltonian::setSzTot(double szTot) {SzTot = szTot;}
 double BDHamiltonian::getSzTot() {return SzTot;}
@@ -58,19 +58,30 @@ SBDMatrix BDHamiltonian::apply(SBDMatrix vector) {
 
 SBDMatrix BDHamiltonian::apply(SBDMatrix vector, double szTot) {
 	SBDMatrix newVector(vector.blockNum());
-	int I;
-	for (int i=0; i<HA->blockNum(); i++) {
-		I = HA->getIndexByValue(szTot - HA->getBlockValue(i));
-		if (I!=-1) {
-			newVector[i] = (*HA)[i] * vector[i] + ((*HA)[I].reverse()*(vector[i].transpose())).transpose();
-			for (int j=0; j<newVector[i].rows(); j++)
-				for (int k=0; k<newVector[i].cols(); k++)
-					newVector[i](j,k) += Jz * vector[i](k,j) * (*SzA)[i](j,j) * (*SzA)[I]((*SzA)[I].rows()-1-k,(*SzA)[I].rows()-1-k);
-			if (i>0) {
-				newVector[i-1] += Jxy/2 * (*SplusA)[i-1] * (vector[i]*(*SplusA)[I].reverse());
-				newVector[i]   += Jxy/2 * (*SplusA)[i-1].transpose() * ((*SplusA)[I].reverse()*vector[i-1].transpose()).transpose();
+	int i,I;
+	double blockValue;
+	for (int blockInd=0; blockInd<HA->blockNum(); blockInd++) {
+		blockValue = vector.getBlockValue(blockInd);
+		i = HA->getIndexByValue(blockValue);
+		I = HA->getIndexByValue(szTot - blockValue);
+		if ((i!=-1) && (I!=-1)) {
+			newVector[blockInd] = (*HA)[i] * vector[blockInd] + ((*HA)[I]*(vector[blockInd].transpose())).transpose();
+			//newVector[blockInd] = (*HA)[i].transpose() * vector[blockInd] + vector[blockInd]*(*HA)[I];
+			//printf("eee\n");
+			/*for (int j=0; j<newVector[blockInd].rows(); j++)
+				for (int k=0; k<newVector[blockInd].cols(); k++)
+					newVector[blockInd](j,k) += Jz * vector[blockInd](j,k) * (*SzA)[i](j,j) * (*SzA)[I]((*SzA)[I].rows()-1-k,(*SzA)[I].rows()-1-k);*/
+			//newVector[blockInd] += (*SzA)[i].transpose() * vector[blockInd] * (*SzA)[I];
+			newVector[blockInd] += (*SzA)[i] * ((*SzA)[I] * vector[blockInd].transpose()).transpose();
+			//cout << (*SzA)[i] << endl << (*SzA)[i].reverse() << endl << endl;
+			//printf("fff\n");
+			if (blockInd>0) {
+				newVector[blockInd-1] += Jxy/2 * (*SplusA)[i-1] * (vector[blockInd]*(*SplusA)[I]);
+				//newVector[blockInd-1] += Jxy/2 * (*SplusA)[i-1].transpose() * vector[blockInd] * (*SplusA)[I].reverse();
+				newVector[blockInd]   += Jxy/2 * (*SplusA)[i-1].transpose() * ((*SplusA)[I]*vector[blockInd-1].transpose()).transpose();
+				//newVector[blockInd]   += Jxy/2 * (*SplusA)[i-1] * ((*SplusA)[I].reverse()*vector[blockInd-1].transpose()).transpose();
 			}
-			//(*HA)[i] * ((*HA)[I].reverse()*vector[i].transpose()).transpose()
+			newVector.setBlockValue(blockInd,blockValue);
 		}
 	}
 	return newVector;
@@ -102,6 +113,38 @@ int BDHamiltonian::blockNum(double szTot) {
 	}
 	return b;
 }
+
+MatrixXd BDHamiltonian::toMatrix() {
+	MatrixXd matrix(dim(),dim());
+	SBDMatrix vector(blockNum());
+	int I, blockInd=0, colInd = 0;
+	for (int i=0; i<HA->blockNum(); i++) {
+		I = HA->getIndexByValue(0 - HA->getBlockValue(i));
+		if (I!=-1) {
+			vector[blockInd].resize((*HA)[i].rows(), (*HA)[I].rows());
+			vector[blockInd].setZero();
+			vector.setBlockValue(blockInd,HA->getBlockValue(i));
+			blockInd++;
+		}
+	}
+
+	for (int b=0; b<vector.blockNum(); b++) {
+		for (int i=0; i<vector[b].rows(); i++) {
+			for (int j=0; j<vector[b].cols(); j++) {
+				vector[b](i,j) = 1;
+				matrix.col(colInd++) = apply(vector).flatten().transpose();
+				vector[b](i,j) = 0;
+			}
+		}
+	}
+
+	return matrix;
+}
+
+void BDHamiltonian::print() {
+	cout << toMatrix() << endl;
+}
+
 
 
 

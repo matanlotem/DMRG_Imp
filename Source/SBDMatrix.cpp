@@ -96,20 +96,26 @@ void SBDMatrix::printStats() {
 	printf("dim: %dx%d, blocks: %d\n", rows(), cols(), b);
 }
 
+void SBDMatrix::printFullStats() {
+	printStats();
+	for (int i=0; i<blockNum(); i++)
+		printBlockStats(i);
+}
+
 void SBDMatrix::printBlockStats(int index) {
-	printf("\tblock %d dim: %dx%d\n", index, (int) blocks[index].rows(), (int) blocks[index].cols());
+	printf("\tblock %d, SzTot=%.1f dim: %dx%d\n", index, blockValues[index] , (int) blocks[index].rows(), (int) blocks[index].cols());
 }
 
 
-int SBDMatrix::dim() {return rows();}
+//int SBDMatrix::dim() {return rows();}
 
-int SBDMatrix::maxBlockDim() {
+/*int SBDMatrix::maxBlockDim() {
 	int mbd = 0;
 	for (int i=0; i<b; i++)
 		if (blocks[i].size() > 0)
 			mbd = max(mbd,(int) blocks[i].rows());
 	return mbd;
-}
+}*/
 
 double SBDMatrix::getBlockValue(const int index) {
 	return blockValues[index];
@@ -140,7 +146,7 @@ SBDMatrix SBDMatrix::operator+ (SBDMatrix matrix) {
 	return newMatrix;
 }
 
-SBDMatrix SBDMatrix::operator* (SBDMatrix matrix) {
+/*SBDMatrix SBDMatrix::operator* (SBDMatrix matrix) {
 	if (blockNum() != matrix.blockNum())
 		throw "Block num doesn't match!";
 
@@ -166,7 +172,7 @@ SBDMatrix operator* (double scalar, SBDMatrix matrix) {
 	for (int i=0; i<matrix.blockNum(); i++)
 		newMatrix[i] = scalar*matrix[i];
 	return newMatrix;
-}
+}*/
 
 double SBDMatrix::norm() {
 	double nrm = 0;
@@ -200,3 +206,13 @@ void SBDMatrix::resize(int newBlockNum) {
 	}
 }
 
+VectorXd SBDMatrix::flatten() {
+	int d = 0, vecInd = 0;
+	for (int i=0; i<blockNum(); i++) d += (int) blocks[i].size();
+	VectorXd vector(d);
+	for (int i=0; i<blockNum(); i++)
+		for (int j=0; j<blocks[i].rows(); j++)
+			for (int k=0; k<blocks[i].cols(); k++)
+				vector(vecInd++) = blocks[i](j,k);
+	return vector;
+}

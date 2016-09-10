@@ -95,6 +95,13 @@ void SBDODMatrix::printStats() {
 	printf("dim: %dx%d, blocks: %d\n", rows(), cols(), b);
 }
 
+void SBDODMatrix::printFullStats() {
+	printStats();
+	for (int i=0; i<blockNum(); i++)
+		printBlockStats(i);
+}
+
+
 void SBDODMatrix::printBlockStats(int index) {
 	printf("\tblock %d dim: %dx%d\n", index, (int) blocks[index].rows(), (int) blocks[index].cols());
 }
