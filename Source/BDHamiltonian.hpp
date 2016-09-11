@@ -8,26 +8,27 @@
 #ifndef BDHAMILTONIAN_HPP_
 #define BDHAMILTONIAN_HPP_
 #include <Eigen/core>
-#include "SBDMatrix.hpp"
-#include "SBDODMatrix.hpp"
+
+#include "BDMatrix.hpp"
+#include "BODMatrix.hpp"
 
 
 class BDHamiltonian {
 private:
-	SBDMatrix *HA;
-	SBDMatrix *SzA;
-	SBDODMatrix *SplusA;
+	BDMatrix *HA;
+	BDMatrix *SzA;
+	BODMatrix *SplusA;
 	double Jxy, Jz, Hz, SzTot;
 public:
-	BDHamiltonian(SBDMatrix * HA, SBDMatrix * SzA, SBDODMatrix * SplusA, double Jxy, double Jz, double Hz);
-	BDHamiltonian(SBDMatrix * HA, SBDMatrix * SzA, SBDODMatrix * SplusA, double Jxy, double Jz, double Hz, double SzTot);
+	BDHamiltonian(BDMatrix * HA, BDMatrix * SzA, BODMatrix * SplusA, double Jxy, double Jz, double Hz);
+	BDHamiltonian(BDMatrix * HA, BDMatrix * SzA, BODMatrix * SplusA, double Jxy, double Jz, double Hz, double SzTot);
 	~BDHamiltonian();
 
 	void setSzTot(double szTot);
 	double getSzTot();
 
-	SBDMatrix apply(SBDMatrix vector);
-	SBDMatrix apply(SBDMatrix vector, double szTot);
+	BDMatrix apply(BDMatrix vector);
+	BDMatrix apply(BDMatrix vector, double szTot);
 	int dim();
 	int dim(double szTot);
 	int blockNum();
@@ -38,12 +39,12 @@ public:
 
 };
 
-BDHamiltonian::BDHamiltonian(SBDMatrix * HA, SBDMatrix * SzA, SBDODMatrix * SplusA, double Jxy, double Jz, double Hz) :
+BDHamiltonian::BDHamiltonian(BDMatrix * HA, BDMatrix * SzA, BODMatrix * SplusA, double Jxy, double Jz, double Hz) :
 		HA(HA), SzA(SzA), SplusA(SplusA), Jxy(Jxy), Jz(Jz), Hz(Hz) {
 	SzTot = 0;
 }
 
-BDHamiltonian::BDHamiltonian(SBDMatrix * HA, SBDMatrix * SzA, SBDODMatrix * SplusA, double Jxy, double Jz, double Hz, double SzTot) :
+BDHamiltonian::BDHamiltonian(BDMatrix * HA, BDMatrix * SzA, BODMatrix * SplusA, double Jxy, double Jz, double Hz, double SzTot) :
 		HA(HA), SzA(SzA), SplusA(SplusA), Jxy(Jxy), Jz(Jz), Hz(Hz), SzTot(SzTot){
 }
 
@@ -52,15 +53,15 @@ BDHamiltonian::~BDHamiltonian() {}
 void BDHamiltonian::setSzTot(double szTot) {SzTot = szTot;}
 double BDHamiltonian::getSzTot() {return SzTot;}
 
-SBDMatrix BDHamiltonian::apply(SBDMatrix vector) {
+BDMatrix BDHamiltonian::apply(BDMatrix vector) {
 	return apply(vector, SzTot);
 }
 
-SBDMatrix BDHamiltonian::apply(SBDMatrix vector, double szTot) {
-	SBDMatrix newVector(vector.blockNum());
+BDMatrix BDHamiltonian::apply(BDMatrix vector, double szTot) {
+	BDMatrix newVector(vector.blockNum());
 	int i,I;
 	double blockValue;
-	for (int blockInd=0; blockInd<HA->blockNum(); blockInd++) {
+	for (int blockInd=0; blockInd<vector.blockNum(); blockInd++) {
 		blockValue = vector.getBlockValue(blockInd);
 		i = HA->getIndexByValue(blockValue);
 		I = HA->getIndexByValue(szTot - blockValue);
@@ -114,7 +115,7 @@ int BDHamiltonian::blockNum(double szTot) {
 
 MatrixXd BDHamiltonian::toMatrix() {
 	MatrixXd matrix(dim(),dim());
-	SBDMatrix vector(blockNum());
+	BDMatrix vector(blockNum());
 	int I, blockInd=0, colInd = 0;
 	for (int i=0; i<HA->blockNum(); i++) {
 		I = HA->getIndexByValue(0 - HA->getBlockValue(i));

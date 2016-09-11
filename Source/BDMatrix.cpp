@@ -1,11 +1,9 @@
 /*
- * SBDMatrix.cpp
+ * BDMatrix.cpp
  *
  *  Created on: Sep 1, 2016
  *      Author: Matan
  */
-
-#include "SBDMatrix.hpp"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -13,11 +11,12 @@
 #include <vector>
 #include <algorithm>
 #include <Eigen/Core>
+#include "BDMatrix.hpp"
 
 using namespace Eigen;
 using namespace std;
 
-SBDMatrix::SBDMatrix(int b) : b(b) {
+BDMatrix::BDMatrix(int b) : b(b) {
 	//blocks = new MatrixXd[b];
 	//blockValues = new double[b];
 	blocks.resize(b);
@@ -25,7 +24,7 @@ SBDMatrix::SBDMatrix(int b) : b(b) {
 	for (int i=0; i<b; i++) blocks[i] = MatrixXd(0,0);
 }
 
-SBDMatrix::SBDMatrix(SBDMatrix * matrix, VectorXd * vector) {
+BDMatrix::BDMatrix(BDMatrix * matrix, VectorXd * vector) {
 	resize(blockNum());
 	int ind=0, rows, cols;
 	for (int i=0; i<b; i++){
@@ -47,16 +46,16 @@ SBDMatrix::SBDMatrix(SBDMatrix * matrix, VectorXd * vector) {
 
 }
 
-SBDMatrix::~SBDMatrix() {
+BDMatrix::~BDMatrix() {
 	//printf("Destructor %d started\n",this);
 	//delete[] blocks;
 	//delete[] blockValues;
 	//printf("Destructor %d done\n",this);
 }
 
-int SBDMatrix::blockNum() {return b;}
+int BDMatrix::blockNum() {return b;}
 
-int SBDMatrix::rows() {
+int BDMatrix::rows() {
 	int d = 0;
 	for (int i=0; i<b; i++)
 		if (blocks[i].rows() > 0)
@@ -64,7 +63,7 @@ int SBDMatrix::rows() {
 	return d;
 }
 
-int SBDMatrix::cols() {
+int BDMatrix::cols() {
 	int d = 0;
 	for (int i=0; i<b; i++)
 		if (blocks[i].cols() > 0)
@@ -72,11 +71,11 @@ int SBDMatrix::cols() {
 	return d;
 }
 
-MatrixXd& SBDMatrix::operator[] (const int index) {
+MatrixXd& BDMatrix::operator[] (const int index) {
 	return blocks[index];
 }
 
-MatrixXd SBDMatrix::toMatrix() {
+MatrixXd BDMatrix::toMatrix() {
 	MatrixXd matrix(rows(),cols());
 	matrix.setZero();
 	int indRows = 0, indCols = 0;
@@ -88,28 +87,28 @@ MatrixXd SBDMatrix::toMatrix() {
 	return matrix;
 }
 
-void SBDMatrix::print() {
+void BDMatrix::print() {
 	cout << toMatrix() << endl;
 }
 
-void SBDMatrix::printStats() {
+void BDMatrix::printStats() {
 	printf("dim: %dx%d, blocks: %d\n", rows(), cols(), b);
 }
 
-void SBDMatrix::printFullStats() {
+void BDMatrix::printFullStats() {
 	printStats();
 	for (int i=0; i<blockNum(); i++)
 		printBlockStats(i);
 }
 
-void SBDMatrix::printBlockStats(int index) {
+void BDMatrix::printBlockStats(int index) {
 	printf("\tblock %d, SzTot=%.1f dim: %dx%d\n", index, blockValues[index] , (int) blocks[index].rows(), (int) blocks[index].cols());
 }
 
 
-//int SBDMatrix::dim() {return rows();}
+//int BDMatrix::dim() {return rows();}
 
-/*int SBDMatrix::maxBlockDim() {
+/*int BDMatrix::maxBlockDim() {
 	int mbd = 0;
 	for (int i=0; i<b; i++)
 		if (blocks[i].size() > 0)
@@ -117,26 +116,26 @@ void SBDMatrix::printBlockStats(int index) {
 	return mbd;
 }*/
 
-double SBDMatrix::getBlockValue(const int index) {
+double BDMatrix::getBlockValue(const int index) {
 	return blockValues[index];
 }
 
-void SBDMatrix::setBlockValue(const int index, double value) {
+void BDMatrix::setBlockValue(const int index, double value) {
 	blockValues[index] = value;
 }
 
-int SBDMatrix::getIndexByValue(double value) {
+int BDMatrix::getIndexByValue(double value) {
 	int index = 0;
 	while (index < b && blockValues[index] != value) index++;
 	if (index < b) return index;
 	return -1;
 }
 
-SBDMatrix SBDMatrix::operator+ (SBDMatrix matrix) {
+BDMatrix BDMatrix::operator+ (BDMatrix matrix) {
 	if (blockNum() != matrix.blockNum())
 		throw "Block num doesn't match!";
 
-	SBDMatrix newMatrix(blockNum());
+	BDMatrix newMatrix(blockNum());
 	for (int i=0; i<blockNum(); i++) {
 		if (matrix[i].rows() != blocks[i].rows())
 			throw ("Blocks[i] size doesn't match!");
@@ -146,11 +145,11 @@ SBDMatrix SBDMatrix::operator+ (SBDMatrix matrix) {
 	return newMatrix;
 }
 
-/*SBDMatrix SBDMatrix::operator* (SBDMatrix matrix) {
+/*BDMatrix BDMatrix::operator* (BDMatrix matrix) {
 	if (blockNum() != matrix.blockNum())
 		throw "Block num doesn't match!";
 
-	SBDMatrix newMatrix(blockNum());
+	BDMatrix newMatrix(blockNum());
 	for (int i=0; i<blockNum(); i++) {
 		if (matrix[i].rows() != blocks[i].rows())
 			throw ("Blocks[i] size doesn't match!");
@@ -160,28 +159,28 @@ SBDMatrix SBDMatrix::operator+ (SBDMatrix matrix) {
 	return newMatrix;
 }
 
-SBDMatrix SBDMatrix::operator* (double scalar) {
-	SBDMatrix newMatrix(blockNum());
+BDMatrix BDMatrix::operator* (double scalar) {
+	BDMatrix newMatrix(blockNum());
 	for (int i=0; i<blockNum(); i++)
 		newMatrix[i] = scalar*blocks[i];
 	return newMatrix;
 }
 
-SBDMatrix operator* (double scalar, SBDMatrix matrix) {
-	SBDMatrix newMatrix(matrix.blockNum());
+BDMatrix operator* (double scalar, BDMatrix matrix) {
+	BDMatrix newMatrix(matrix.blockNum());
 	for (int i=0; i<matrix.blockNum(); i++)
 		newMatrix[i] = scalar*matrix[i];
 	return newMatrix;
 }*/
 
-double SBDMatrix::norm() {
+double BDMatrix::norm() {
 	double nrm = 0;
 	for (int i=0; i<blockNum(); i++)
 		nrm += blocks[i].squaredNorm();
 	return sqrt(nrm);
 }
 
-double SBDMatrix::dot(SBDMatrix matrix) {
+double BDMatrix::dot(BDMatrix matrix) {
 	double dotProd = 0;
 	for (int i=0; i<blockNum(); i++)
 		for (int j=0; j<blocks[i].rows(); j++)
@@ -190,7 +189,7 @@ double SBDMatrix::dot(SBDMatrix matrix) {
 	return dotProd;
 }
 
-void SBDMatrix::operator=(SBDMatrix matrix) {
+void BDMatrix::operator=(BDMatrix matrix) {
 	resize(matrix.blockNum());
 	for (int i=0; i<blockNum(); i++) {
 		blocks[i] = matrix[i];
@@ -198,7 +197,7 @@ void SBDMatrix::operator=(SBDMatrix matrix) {
 	}
 }
 
-void SBDMatrix::resize(int newBlockNum) {
+void BDMatrix::resize(int newBlockNum) {
 	if (b != newBlockNum) {
 		b = newBlockNum;
 		blocks.resize(b);
@@ -206,7 +205,7 @@ void SBDMatrix::resize(int newBlockNum) {
 	}
 }
 
-VectorXd SBDMatrix::flatten() {
+VectorXd BDMatrix::flatten() {
 	int d = 0, vecInd = 0;
 	for (int i=0; i<blockNum(); i++) d += (int) blocks[i].size();
 	VectorXd vector(d);

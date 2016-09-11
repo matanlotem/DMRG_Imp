@@ -1,27 +1,27 @@
 /*
- * SBDMatrix.hpp
+ * BDMatrix.hpp
  *
  *  Created on: Sep 1, 2016
  *      Author: Matan
  */
 
-#ifndef SBDMATRIX_HPP_
-#define SBDMATRIX_HPP_
+#ifndef BDMATRIX_HPP_
+#define BDMATRIX_HPP_
 
 #include <vector>
 #include <Eigen/Core>
 using namespace Eigen;
 
-class SBDMatrix {
+class BDMatrix {
 private:
 	int b;
 	std::vector<double> blockValues;
 
 public:
 	std::vector<MatrixXd> blocks;
-	SBDMatrix(int b);
-	SBDMatrix(SBDMatrix * matrix, VectorXd * vector);
-	~SBDMatrix();
+	BDMatrix(int b);
+	BDMatrix(BDMatrix * matrix, VectorXd * vector);
+	~BDMatrix();
 
 	int blockNum();
 	int rows();
@@ -41,20 +41,20 @@ public:
 	int getIndexByValue(double value);
 
 	double norm();
-	double dot(SBDMatrix matrix);
-	void operator=(SBDMatrix matrix);
+	double dot(BDMatrix matrix);
+	void operator=(BDMatrix matrix);
 	void resize(int newBlockNum);
-	SBDMatrix operator+ (SBDMatrix matrix);
-	SBDMatrix operator- (SBDMatrix matrix);
+	BDMatrix operator+ (BDMatrix matrix);
+	BDMatrix operator- (BDMatrix matrix);
 
-	/*SBDMatrix operator* (SBDMatrix matrix);
-	SBDMatrix operator* (double scalar);
-	SBDMatrix operator/ (SBDMatrix matrix);
-	SBDMatrix operator/ (double scalar);*/
+	/*BDMatrix operator* (BDMatrix matrix);
+	BDMatrix operator* (double scalar);
+	BDMatrix operator/ (BDMatrix matrix);
+	BDMatrix operator/ (double scalar);*/
 
 	VectorXd flatten();
 };
 
-//SBDMatrix operator* (double scalar, SBDMatrix matrix);
+//BDMatrix operator* (double scalar, BDMatrix matrix);
 
-#endif /* SBDMATRIX_HPP_ */
+#endif /* BDMATRIX_HPP_ */
