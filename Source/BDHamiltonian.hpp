@@ -65,21 +65,19 @@ SBDMatrix BDHamiltonian::apply(SBDMatrix vector, double szTot) {
 		i = HA->getIndexByValue(blockValue);
 		I = HA->getIndexByValue(szTot - blockValue);
 		if ((i!=-1) && (I!=-1)) {
-			newVector[blockInd] = (*HA)[i] * vector[blockInd] + ((*HA)[I]*(vector[blockInd].transpose())).transpose();
-			//newVector[blockInd] = (*HA)[i].transpose() * vector[blockInd] + vector[blockInd]*(*HA)[I];
-			//printf("eee\n");
-			/*for (int j=0; j<newVector[blockInd].rows(); j++)
+			//newVector[blockInd] = (*HA)[i] * vector[blockInd] + ((*HA)[I]*(vector[blockInd].transpose())).transpose();
+			newVector[blockInd] = (*HA)[i] * vector[blockInd] + vector[blockInd]*(*HA)[I]; // transpose expansion, HA is symmetric
+
+			// newVector[blockInd] += Jz * (*SzA)[i] * ((*SzA)[I] * vector[blockInd].transpose()).transpose();
+			// newVector[blockInd] += Jz * (*SzA)[i] * vector[blockInd] * (*SzA)[I]; // transpose expansion, SzA is symmetric
+			for (int j=0; j<newVector[blockInd].rows(); j++)
 				for (int k=0; k<newVector[blockInd].cols(); k++)
-					newVector[blockInd](j,k) += Jz * vector[blockInd](j,k) * (*SzA)[i](j,j) * (*SzA)[I]((*SzA)[I].rows()-1-k,(*SzA)[I].rows()-1-k);*/
-			//newVector[blockInd] += (*SzA)[i].transpose() * vector[blockInd] * (*SzA)[I];
-			newVector[blockInd] += (*SzA)[i] * ((*SzA)[I] * vector[blockInd].transpose()).transpose();
-			//cout << (*SzA)[i] << endl << (*SzA)[i].reverse() << endl << endl;
-			//printf("fff\n");
+					newVector[blockInd](j,k) += Jz * vector[blockInd](j,k) * (*SzA)[i](j,j) * (*SzA)[I](k,k);
+
 			if (blockInd>0) {
-				newVector[blockInd-1] += Jxy/2 * (*SplusA)[i-1] * (vector[blockInd]*(*SplusA)[I]);
-				//newVector[blockInd-1] += Jxy/2 * (*SplusA)[i-1].transpose() * vector[blockInd] * (*SplusA)[I].reverse();
-				newVector[blockInd]   += Jxy/2 * (*SplusA)[i-1].transpose() * ((*SplusA)[I]*vector[blockInd-1].transpose()).transpose();
-				//newVector[blockInd]   += Jxy/2 * (*SplusA)[i-1] * ((*SplusA)[I].reverse()*vector[blockInd-1].transpose()).transpose();
+				newVector[blockInd-1] += Jxy/2 * (*SplusA)[i-1] * vector[blockInd] * (*SplusA)[I];
+				//newVector[blockInd]   += Jxy/2 * (*SplusA)[i-1].transpose() * ((*SplusA)[I]*vector[blockInd-1].transpose()).transpose();
+				newVector[blockInd]   += Jxy/2 * (*SplusA)[i-1].transpose() * vector[blockInd-1] * (*SplusA)[I].transpose(); //transpose expansion
 			}
 			newVector.setBlockValue(blockInd,blockValue);
 		}

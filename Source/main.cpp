@@ -26,7 +26,7 @@ using namespace Eigen;
 using namespace std;
 using utils::tensorProdIdent;
 
-#define DEBUG = true
+#define DEBUG = false
 #ifdef DEBUG
 #define DBG(x) (x)
 #else
@@ -518,7 +518,7 @@ SBDMatrix oopLanczos(BDHamiltonian *matrix, SBDMatrix baseState) {
 void oopDMRG(int N) {
 	double Jxy=1, Jz=1, Hz=0;
 
-	int n=2, b=2, D=128;
+	int n=2, b=2, D=256;
 	SBDMatrix HAPrev(b), SzAPrev(b),
 			  HACurr(b), SzACurr(b),
 			  DensityMatrix(b);
@@ -527,6 +527,7 @@ void oopDMRG(int N) {
 	SelfAdjointEigenSolver<MatrixXd> solver;
 	vector<SelfAdjointEigenSolver<MatrixXd> > blockSolvers;
 	vector<int> newBasisVectors;
+	double baseEv;
 
 	SzAPrev[0] = (MatrixXd::Identity(1,1) * -0.5);
 	SzAPrev[1] = (MatrixXd::Identity(1,1) *  0.5);
@@ -659,12 +660,11 @@ void oopDMRG(int N) {
 				}
 			}
 
-
-
 			// find AB base state with Lanczos
 			DBG(printf("finding AB base state with Lanczos\n"));
 			SBDMatrix ABBaseState = oopLanczos(HAB, baseStateMatrix);
-			DBG(printf("base Ev: %f\n",HAB->apply(ABBaseState).norm()));
+			baseEv = ABBaseState.dot(HAB->apply(ABBaseState));
+			DBG(printf("base Ev: %f\n", baseEv));
 
 			// create density matrix
 			DBG(printf("creating A density matrix\n"));
@@ -736,19 +736,10 @@ void oopDMRG(int N) {
 			delete HAB;
 		}
 
-		/*solver.compute(HACurr.toMatrix(),false);
-		printf("\nHACurr: min ev=%f\n",solver.eigenvalues()[0]);
-		solver.compute(HAPrev.toMatrix(),false);
-		printf("\nHAPrev: min ev=%f\n",solver.eigenvalues()[0]);*/
-
 		n += 2;
 	}
 
-
-
-
-	printf("yay!\n");
-
+	printf("Base state eigenvalue for %d site Heisenberg model: %.20f\n", n, baseEv);
 }
 
 void testHAB(int N) {
