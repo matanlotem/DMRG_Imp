@@ -518,7 +518,7 @@ SBDMatrix oopLanczos(BDHamiltonian *matrix, SBDMatrix baseState) {
 void oopDMRG(int N) {
 	double Jxy=1, Jz=1, Hz=0;
 
-	int n=1, b=2, D=8;
+	int n=2, b=2, D=128;
 	SBDMatrix HAPrev(b), SzAPrev(b),
 			  HACurr(b), SzACurr(b),
 			  DensityMatrix(b);
@@ -528,8 +528,6 @@ void oopDMRG(int N) {
 	vector<SelfAdjointEigenSolver<MatrixXd> > blockSolvers;
 	vector<int> newBasisVectors;
 
-
-	//SzAPrev = new SBDMatrix(b);
 	SzAPrev[0] = (MatrixXd::Identity(1,1) * -0.5);
 	SzAPrev[1] = (MatrixXd::Identity(1,1) *  0.5);
 
@@ -543,7 +541,7 @@ void oopDMRG(int N) {
 	SplusAPrev[0] = MatrixXd::Identity(1,1);
 
 	while (n<N) {
-		DBG(printf("Adding site %d\n", n));
+		DBG(printf("Going to %d sites\n", n+2));
 		// count new block number
 		for (int i=1; i<HAPrev.blockNum(); i++)
 			if (HAPrev.getBlockValue(i) - 1 != HAPrev.getBlockValue(i-1)) b++;
@@ -568,7 +566,6 @@ void oopDMRG(int N) {
 			// if block with SzTot-1 exists
 			else {
 				HACurr.setBlockValue(blockInd,HAPrev.getBlockValue(i)-0.5);
-				//DBG(printf("\tblock %d\n",i));
 				dim1 = HAPrev[i-1].rows();
 				dim2 = HAPrev[i].rows();
 
@@ -632,13 +629,6 @@ void oopDMRG(int N) {
 
 		}
 
-
-		// printing stuff
-		//DBG(printf("printing HA\n"));
-		//HACurr.print();
-		//solver.compute(HACurr.toMatrix(),false);
-		//cout << solver.eigenvalues().transpose() << endl << endl;
-
 		if (HACurr.rows() <= D) {
 			SzAPrev = SzACurr;
 			HAPrev = HACurr;
@@ -672,46 +662,23 @@ void oopDMRG(int N) {
 
 
 			// find AB base state with Lanczos
-
-			//HACurr.print();
-			//SzACurr.print();
-			//SplusACurr.printFullStats();
-			//cout << SplusACurr[0] << endl << endl << SplusACurr[1] << endl << endl;
-			//HAB->print();
-			/*
-			printf("aabbcc\n");
-			printf("HA:\n");
-			HACurr.printFullStats();
-			printf("SzA:\n");
-			HACurr.printFullStats();
-			printf("base state:\n");
-			baseStateMatrix.printFullStats();
-			baseStateMatrix.print();
-			(HAB->apply(baseStateMatrix)).printFullStats();
-			(HAB->apply(baseStateMatrix)).print();
-			printf("ccbbaa\n");*/
 			DBG(printf("finding AB base state with Lanczos\n"));
 			SBDMatrix ABBaseState = oopLanczos(HAB, baseStateMatrix);
 			DBG(printf("base Ev: %f\n",HAB->apply(ABBaseState).norm()));
-			//ABBaseState.print();
 
 			// create density matrix
 			DBG(printf("creating A density matrix\n"));
 			DensityMatrix.resize(HAB->blockNum());
 			for (int i=0; i<DensityMatrix.blockNum(); i++) {
-				DensityMatrix[i] = ABBaseState[i].transpose()*ABBaseState[i];
+				DensityMatrix[i] = ABBaseState[i]*ABBaseState[i].transpose();
 				DensityMatrix.setBlockValue(i, ABBaseState.getBlockValue(i));
 			}
-			//DensityMatrix.print();
 
 			// diagonalize density matrix
 			DBG(printf("diagonalizing A density matrix\n"));
 			blockSolvers.resize(DensityMatrix.blockNum());
 			for (int i=0; i<DensityMatrix.blockNum(); i++)
 				blockSolvers[i].compute(DensityMatrix[i]);
-
-			//solver.compute(DensityMatrix.toMatrix(),false);
-			//cout << "DMatrix ev: " << solver.eigenvalues().transpose() << endl << endl;
 
 			// select new basis vectors
 			DBG(printf("selecting new basis vectors\n"));
@@ -731,10 +698,6 @@ void oopDMRG(int N) {
 						}
 					}
 				}
-				/*printf("block=%d ev=%f\n",currBlock,maxEv);
-				printf("\tev check: %f\n", (DensityMatrix[currBlock] *
-						blockSolvers[currBlock].eigenvectors().col(DensityMatrix[currBlock].cols() - 1 - newBasisVectors[currBlock])).norm());
-						*/
 				newBasisVectors[currBlock]++;
 				vectorNum++;
 			}
@@ -752,10 +715,8 @@ void oopDMRG(int N) {
 			SplusAPrev.resize(b-1);
 
 			blockInd = 0;
-
 			for (int i=0; i < (int) newBasisVectors.size(); i++) {
 				if (newBasisVectors[i] > 0) {
-					//cout << "Density Matrix Sz=" << DensityMatrix.getBlockValue(i) << " EV:\n  " << blockSolvers[i].eigenvalues().bottomRows(newBasisVectors[i]).transpose() << endl;
 					SzAPrev[blockInd] = blockSolvers[i].eigenvectors().rightCols(newBasisVectors[i]).transpose() *
 							            SzACurr[i] * blockSolvers[i].eigenvectors().rightCols(newBasisVectors[i]);
 					SzAPrev.setBlockValue(blockInd, DensityMatrix.getBlockValue(i));
@@ -773,26 +734,12 @@ void oopDMRG(int N) {
 			}
 
 			delete HAB;
-
-			//HAPrev.print();
-			//solver.compute(HAPrev.toMatrix(),false);
-			//cout << endl << solver.eigenvalues().transpose() << endl << endl;
-			//printf("new b=%d!\n",b);
-			//abort();
-
-			//SzAPrev = SzACurr;
-			//HAPrev = HACurr;
-			//SplusAPrev = SplusACurr;
 		}
 
 		/*solver.compute(HACurr.toMatrix(),false);
 		printf("\nHACurr: min ev=%f\n",solver.eigenvalues()[0]);
-		HACurr.printFullStats();
-		HACurr.print();
 		solver.compute(HAPrev.toMatrix(),false);
-		printf("\nHAPrev: min ev=%f\n",solver.eigenvalues()[0]);
-		HAPrev.printFullStats();
-		HAPrev.print();*/
+		printf("\nHAPrev: min ev=%f\n",solver.eigenvalues()[0]);*/
 
 		n += 2;
 	}
