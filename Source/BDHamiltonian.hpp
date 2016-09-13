@@ -7,10 +7,15 @@
 
 #ifndef BDHAMILTONIAN_HPP_
 #define BDHAMILTONIAN_HPP_
+#include <stdio.h>
+#include <stdlib.h>
+#include <iostream>
 #include <Eigen/core>
-
 #include "BDMatrix.hpp"
 #include "BODMatrix.hpp"
+
+using namespace Eigen;
+using namespace std;
 
 
 class BDHamiltonian {
