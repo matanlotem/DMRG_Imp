@@ -65,7 +65,7 @@ BDHamiltonian::BDHamiltonian(BDMatrix * HA, BDMatrix * SzA, BODMatrix * SplusA,
 
 BDHamiltonian::BDHamiltonian(BDMatrix * HA, BDMatrix * SzA, BODMatrix * SplusA, double Jxy, double Jz, double Hz, double SzTot) :
 		HA(HA), SzA(SzA), SplusA(SplusA),
-		SzB(SzA), SplusB(SplusA), Jxy(Jxy), Jz(Jz), Hz(Hz), SzTot(SzTot) {
+		HB(HA), SzB(SzA), SplusB(SplusA), Jxy(Jxy), Jz(Jz), Hz(Hz), SzTot(SzTot) {
 }
 
 BDHamiltonian::BDHamiltonian(BDMatrix * HA, BDMatrix * SzA, BODMatrix * SplusA,

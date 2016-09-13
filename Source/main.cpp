@@ -142,7 +142,6 @@ BDMatrix oopLanczos(BDHamiltonian *matrix, BDMatrix baseState) {
 	return outputState;
 }
 
-
 void oopDMRG(int N) {
 	double Jxy=1, Jz=1, Hz=0;
 
@@ -384,7 +383,338 @@ void oopDMRG(int N) {
 	printf("Bethe Ansatz eigenvalue in thermodynamical limit: %.20f\n", n*(0.25 - std::log(2.0)));
 }
 
+void FullDMRG(int N) {
+	double Jxy=1, Jz=1, Hz=0;
+	int D=128;
 
+	/* ******************************************************************************** */
+	/* declare variables */
+	/* ******************************************************************************** */
+
+	// control variables
+	int n = 2, b = 2, sweeps = 0;
+	int prevOp = 0, currOp = 1, AOp = 0, BOp = N-1;
+	bool infinite = true, done = false;
+	double baseEv = 0;
+
+	// operators vectors
+	vector<BDMatrix> H, Sz;
+	vector<BODMatrix> Splus;
+
+	// big hamiltonian
+	BDHamiltonian * HAB;
+
+	// base state
+	VectorXd baseState;
+	BDMatrix baseStateMatrix(1);
+	BDMatrix ABBaseState(1);
+
+	// desnity matrix
+	BDMatrix DensityMatrix(1);
+	vector<SelfAdjointEigenSolver<MatrixXd> > blockSolvers;
+	vector<int> newBasisVectors;
+
+	// basis transformation
+	BDMatrix tmpH(1), tmpSz(1);
+	BODMatrix tmpSplus(1);
+
+	/* ******************************************************************************** */
+	/* initialize operators */
+	/* ******************************************************************************** */
+
+	for (int i=0; i<N; i++) {
+		H.push_back(BDMatrix(2));
+		Sz.push_back(BDMatrix(2));
+		Splus.push_back(BODMatrix(1));
+	}
+
+	Sz[0][0] = MatrixXd::Identity(1,1) * -0.5;
+	Sz[0][1] = MatrixXd::Identity(1,1) *  0.5;
+
+	for (int i=0; i<b; i++) {
+		H[0][i]=Hz*Sz[0][i];
+		H[0].setBlockValue(i,Sz[0][i](0,0));
+		Sz[0].setBlockValue(i,Sz[0][i](0,0));
+	}
+
+	Splus[0].resize(&H[0]);
+	Splus[0][0] = MatrixXd::Identity(1,1);
+
+	H[N-1] = H[0];
+	Sz[N-1] = Sz[0];
+	Splus[N-1] = Splus[0];
+
+	/* ******************************************************************************** */
+	/* start DMRG */
+	/* ******************************************************************************** */
+	while (!done) {
+		/* ******************************************************************************** */
+		/* grow operators (grow O' from O) O' index: currOp, O index: prevOp */
+		/* ******************************************************************************** */
+		// count new block number
+		b = H[prevOp].blockNum() + 1;
+		for (int i=1; i<H[prevOp].blockNum(); i++)
+			if (H[prevOp].getBlockValue(i) - 1 != H[prevOp].getBlockValue(i-1)) b++;
+
+		DBG(printf("Creating new blocks\n"));
+		H[currOp].resize(b);
+		Sz[currOp].resize(b);
+
+		int dim1, dim2, blockInd = 0;
+		for (int i=0; i<H[prevOp].blockNum(); i++) {
+			// first block if no block with SzTot-1 exists
+			if ((i==0) || (H[prevOp].getBlockValue(i) - 1 != H[prevOp].getBlockValue(i-1))) {
+				H[currOp].setBlockValue(blockInd,H[prevOp].getBlockValue(i)-0.5);
+				dim1 = H[prevOp][i].rows();
+
+				Sz[currOp][blockInd] = MatrixXd::Identity(dim1,dim1) * -0.5;
+				H[currOp][blockInd] = H[prevOp][i] + Jz * Sz[prevOp][i] * Sz[currOp][blockInd];
+				for (int j=0; j<dim1; j++) H[currOp][blockInd](j,j) += -0.5*Hz;
+			}
+			// if block with SzTot-1 exists
+			else {
+				H[currOp].setBlockValue(blockInd,H[prevOp].getBlockValue(i)-0.5);
+				dim1 = H[prevOp][i-1].rows();
+				dim2 = H[prevOp][i].rows();
+
+				H[currOp][blockInd] = MatrixXd(dim1+dim2,dim1+dim2);
+				Sz[currOp][blockInd] = MatrixXd(dim1+dim2,dim1+dim2);
+				Sz[currOp][blockInd].setZero();
+
+				// add spin up block
+				for (int j=0; j<dim1; j++) Sz[currOp][i](j,j) = 0.5;
+				H[currOp][blockInd].topLeftCorner(dim1,dim1) = H[prevOp][i-1] +
+							Jz * Sz[prevOp][i-1] * Sz[currOp][blockInd].topLeftCorner(dim1,dim1);
+				for (int j=0; j<dim1; j++) H[currOp][blockInd](j,j) += 0.5*Hz;
+
+				// add spin down block
+				for (int j=dim1; j<dim1+dim2; j++) Sz[currOp][blockInd](j,j) = -0.5;
+				H[currOp][blockInd].bottomRightCorner(dim2,dim2) = H[prevOp][i] +
+							Jz * Sz[prevOp][i] * Sz[currOp][blockInd].bottomRightCorner(dim2,dim2);
+				for (int j=dim1; j<dim1+dim2; j++) H[currOp][blockInd](j,j) += -0.5*Hz;
+
+				// add old block movers Jxy/2 * (S+- + S-+)
+				H[currOp][blockInd].topRightCorner(dim1,dim2) = Jxy/2 * Splus[prevOp][i-1];
+				H[currOp][blockInd].bottomLeftCorner(dim2,dim1) = Jxy/2 * Splus[prevOp][i-1].transpose();
+			}
+			blockInd++;
+
+			// if last block or no block with SzTot+1 exists
+			if ((i==H[prevOp].blockNum() - 1) || (H[prevOp].getBlockValue(i) + 1 != H[prevOp].getBlockValue(i+1))) {
+				H[currOp].setBlockValue(blockInd,H[prevOp].getBlockValue(i)+0.5);
+				dim1 = H[prevOp][i].rows();
+
+				Sz[currOp][blockInd] = MatrixXd::Identity(dim1,dim1) * 0.5;
+				H[currOp][blockInd] = H[prevOp][i] + Jz * Sz[prevOp][i] * Sz[currOp][blockInd];
+				for (int j=0; j<dim1; j++) H[currOp][blockInd](j,j) += 0.5*Hz;
+
+				blockInd++;
+			}
+		}
+
+		//create new block movers (S+)
+		DBG(printf("creating new S+ blocks\n"));
+		Splus[currOp].resize(&H[currOp]);
+		for (int i=0; i<Splus[currOp].blockNum(); i++) {
+			if (H[currOp].getBlockValue(i)+1 == H[currOp].getBlockValue(i+1)) {
+				dim1 = H[prevOp][H[prevOp].getIndexByValue(H[currOp].getBlockValue(i)+0.5)].rows();
+				dim2 = H[currOp][i].rows();
+
+				if ((dim1==dim2) && (dim1 == H[currOp][i+1].cols()))
+					Splus[currOp][i] = MatrixXd::Identity(dim1,dim1);
+				else {
+					Splus[currOp][i].setZero();
+					for (int j=0; j<dim1;j++) Splus[currOp][i](dim2-dim1+j,j) = 1;
+				}
+			}
+			else // if no block with SzTot+1 exists
+				Splus[currOp][i].setZero();
+
+		}
+
+		/* ******************************************************************************** */
+		/* controller */
+		/* ******************************************************************************** */
+		// for inifinte-system DMRG mirror A operators to get B operators
+		if (infinite) {
+			AOp = currOp;
+			BOp = N - 1 - AOp;
+
+			H[BOp] = H[AOp];
+			Sz[BOp] = Sz[AOp];
+			Splus[BOp] = Splus[AOp];
+		}
+
+
+		if (H[currOp].rows() > D) { //truncate
+			/* ******************************************************************************** */
+			/* create AB Hamiltonian (using A & B opertators) */
+			/* ******************************************************************************** */
+			DBG(printf("creating AB Hamiltonian\n"));
+			HAB = new BDHamiltonian(&H[AOp], &Sz[AOp], &Splus[AOp], &H[BOp], &Sz[BOp], &Splus[BOp], Jxy, Jz, Hz);
+
+			/* ******************************************************************************** */
+			/* guess AB base state */
+			/* ******************************************************************************** */
+			DBG(printf("creating AB initial base state\n"));
+			baseState.resize(HAB->dim());
+			baseState.setRandom();
+			baseState = baseState / baseState.norm();
+			baseStateMatrix.resize(HAB->blockNum());
+			int I, vecInd=0, blockInd=0;
+			for (int i=0; i<H[AOp].blockNum(); i++) {
+				I = H[BOp].getIndexByValue(0 - H[AOp].getBlockValue(i));
+				if (I!=-1) {
+					baseStateMatrix[blockInd].resize(H[AOp][i].rows(), H[BOp][I].rows());
+					for (int j=0; j<H[AOp][i].rows(); j++)
+						for (int k=0; k<H[BOp][I].rows(); k++)
+							baseStateMatrix[blockInd](j,k) = baseState(vecInd++);
+					baseStateMatrix.setBlockValue(blockInd, H[AOp].getBlockValue(i));
+					blockInd++;
+				}
+			}
+
+			/* ******************************************************************************** */
+			/* find AB base state with Lanczos */
+			/* ******************************************************************************** */
+			DBG(printf("finding AB base state with Lanczos\n"));
+			ABBaseState = oopLanczos(HAB, baseStateMatrix);
+			baseEv = ABBaseState.dot(HAB->apply(ABBaseState));
+			DBG(printf("base Ev: %f\n", baseEv));
+
+			/* ******************************************************************************** */
+			/* density matrix - calculate, diagonalize, choose new basis */
+			/* ******************************************************************************** */
+			//create density matrix
+			DBG(printf("creating density matrix\n"));
+			DensityMatrix.resize(HAB->blockNum());
+			for (int i=0; i<DensityMatrix.blockNum(); i++) {
+				DensityMatrix[i] = ABBaseState[i]*ABBaseState[i].transpose();
+				DensityMatrix.setBlockValue(i, ABBaseState.getBlockValue(i));
+			}
+
+			// diagonalize density matrix
+			blockSolvers.resize(DensityMatrix.blockNum());
+			DBG(printf("diagonalizing density matrix\n"));
+			for (int i=0; i<DensityMatrix.blockNum(); i++)
+				blockSolvers[i].compute(DensityMatrix[i]);
+
+			// select new basis vectors
+			DBG(printf("selecting new basis vectors\n"));
+			newBasisVectors.resize(DensityMatrix.blockNum());
+			for (int i=0; i<(int) newBasisVectors.size(); i++) newBasisVectors[i] = 0;
+
+			int vectorNum = 0, currBlock = 0;
+			double maxEv;
+			while (vectorNum < D) {
+				maxEv = 0;
+				currBlock = 0;
+				for (int i=0; i<(int) newBasisVectors.size(); i++) {
+					if (newBasisVectors[i] < DensityMatrix[i].rows()) {
+						if (blockSolvers[i].eigenvalues()[DensityMatrix[i].rows() - 1 - newBasisVectors[i]] > maxEv) {
+							maxEv = blockSolvers[i].eigenvalues()[DensityMatrix[i].rows() - 1 - newBasisVectors[i]];
+							currBlock = i;
+						}
+					}
+				}
+				newBasisVectors[currBlock]++;
+				vectorNum++;
+			}
+
+			// count truncated basis blocks;
+			b = 0;
+			for (int i=0; i<(int) newBasisVectors.size(); i++)
+				if (newBasisVectors[i] > 0) b++;
+
+			/* ******************************************************************************** */
+			/* transform operators to new basis */
+			/* ******************************************************************************** */
+			DBG(printf("transforming matrices to new basis\n"));
+
+			tmpSz.resize(b);
+			tmpH.resize(b);
+			tmpSplus.resize(b-1);
+
+			blockInd = 0;
+			int currInd;
+			double blockValue;
+			for (int i=0; i < (int) newBasisVectors.size(); i++) {
+				if (newBasisVectors[i] > 0) {
+					blockValue = DensityMatrix.getBlockValue(i);
+					currInd = H[currOp].getIndexByValue(blockValue);
+
+					tmpSz[blockInd] = blockSolvers[i].eigenvectors().rightCols(newBasisVectors[i]).transpose() *
+							            Sz[currOp][currInd] * blockSolvers[i].eigenvectors().rightCols(newBasisVectors[i]);
+					tmpSz.setBlockValue(blockInd, blockValue);
+
+					tmpH[blockInd] = blockSolvers[i].eigenvectors().rightCols(newBasisVectors[i]).transpose() *
+									   H[currOp][currInd] * blockSolvers[i].eigenvectors().rightCols(newBasisVectors[i]);
+					tmpH.setBlockValue(blockInd, blockValue);
+
+					if (blockInd>0)
+						tmpSplus[blockInd-1] = blockSolvers[i-1].eigenvectors().rightCols(newBasisVectors[i-1]).transpose() *
+											     Splus[currOp][currInd-1] * blockSolvers[i].eigenvectors().rightCols(newBasisVectors[i]);
+
+					blockInd++;
+				}
+			}
+
+			H[currOp] = tmpH;
+			Sz[currOp] = tmpSz;
+			Splus[currOp] = tmpSplus;
+
+			delete HAB;
+		}
+
+		/* ******************************************************************************** */
+		/* controller */
+		/* ******************************************************************************** */
+		if (infinite) {
+			n += 2;
+			if (AOp+1 == BOp) infinite = false; // infinite-system DMRG is done
+			else {
+				// mirror truncated operators
+				H[BOp] = H[AOp];
+				Sz[BOp] = Sz[AOp];
+				Splus[BOp] = Splus[AOp];
+
+				// next operator
+				prevOp = currOp;
+				currOp++;
+
+				DBG(printf("Going to %d sites\n", n+2));
+			}
+		}
+
+		if (!infinite) {
+			if ((1<<(N-1-BOp) <= D) || (1<<(AOp+1) <= D)) sweeps++;
+
+			done = sweeps>0;
+
+
+			// move right (grow A)
+			if (((prevOp < currOp) && (1<<(N-1-BOp) <= D)) ||
+			    ((prevOp > currOp) && (1<<(AOp+1) <= D))) {
+				AOp++;
+				BOp++;
+				currOp = AOp;
+				prevOp = currOp - 1;
+			}
+
+			// move left (grow B)
+			else {
+				BOp--;
+				AOp--;
+				currOp = AOp;
+				prevOp = currOp + 1;
+			}
+		}
+
+	}
+
+	printf("Base state eigenvalue for %d site Heisenberg model: %.20f\n", n, baseEv);
+	printf("Bethe Ansatz eigenvalue in thermodynamical limit: %.20f\n", n*(0.25 - std::log(2.0)));
+}
 
 int main(int argc, char* argv[])
 {
@@ -395,10 +725,7 @@ int main(int argc, char* argv[])
 	}
 	clock_t t0, t1;
 	t0 = clock();
-	//tryDMRG(N);
-	//testHAB(N);
-	oopDMRG(N);
-	//memoryTests(N);
+	FullDMRG(N);
 	t1 = clock();
 	printf("TOTAL TIME: %f SECONDS\n",double(t1-t0)/CLOCKS_PER_SEC);
 	return 0;
