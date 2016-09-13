@@ -18,10 +18,15 @@ private:
 	BDMatrix *HA;
 	BDMatrix *SzA;
 	BODMatrix *SplusA;
+	BDMatrix *HB;
+	BDMatrix *SzB;
+	BODMatrix *SplusB;
 	double Jxy, Jz, Hz, SzTot;
 public:
 	BDHamiltonian(BDMatrix * HA, BDMatrix * SzA, BODMatrix * SplusA, double Jxy, double Jz, double Hz);
+	BDHamiltonian(BDMatrix * HA, BDMatrix * SzA, BODMatrix * SplusA, BDMatrix * HB, BDMatrix * SzB, BODMatrix * SplusB, double Jxy, double Jz, double Hz);
 	BDHamiltonian(BDMatrix * HA, BDMatrix * SzA, BODMatrix * SplusA, double Jxy, double Jz, double Hz, double SzTot);
+	BDHamiltonian(BDMatrix * HA, BDMatrix * SzA, BODMatrix * SplusA, BDMatrix * HB, BDMatrix * SzB, BODMatrix * SplusB, double Jxy, double Jz, double Hz, double SzTot);
 	~BDHamiltonian();
 
 	void setSzTot(double szTot);
@@ -40,13 +45,29 @@ public:
 };
 
 BDHamiltonian::BDHamiltonian(BDMatrix * HA, BDMatrix * SzA, BODMatrix * SplusA, double Jxy, double Jz, double Hz) :
-		HA(HA), SzA(SzA), SplusA(SplusA), Jxy(Jxy), Jz(Jz), Hz(Hz) {
+		HA(HA), SzA(SzA), SplusA(SplusA), HB(HA),
+		SzB(SzA), SplusB(SplusA), Jxy(Jxy), Jz(Jz), Hz(Hz) {
+	SzTot = 0;
+}
+
+BDHamiltonian::BDHamiltonian(BDMatrix * HA, BDMatrix * SzA, BODMatrix * SplusA,
+							 BDMatrix * HB, BDMatrix * SzB, BODMatrix * SplusB,
+							 double Jxy, double Jz, double Hz) :
+		HA(HA), SzA(SzA), SplusA(SplusA), HB(HB),
+		SzB(SzB), SplusB(SplusB), Jxy(Jxy), Jz(Jz), Hz(Hz) {
 	SzTot = 0;
 }
 
 BDHamiltonian::BDHamiltonian(BDMatrix * HA, BDMatrix * SzA, BODMatrix * SplusA, double Jxy, double Jz, double Hz, double SzTot) :
-		HA(HA), SzA(SzA), SplusA(SplusA), Jxy(Jxy), Jz(Jz), Hz(Hz), SzTot(SzTot){
+		HA(HA), SzA(SzA), SplusA(SplusA),
+		SzB(SzA), SplusB(SplusA), Jxy(Jxy), Jz(Jz), Hz(Hz), SzTot(SzTot) {
 }
+
+BDHamiltonian::BDHamiltonian(BDMatrix * HA, BDMatrix * SzA, BODMatrix * SplusA,
+							 BDMatrix * HB, BDMatrix * SzB, BODMatrix * SplusB,
+							 double Jxy, double Jz, double Hz, double SzTot) :
+		HA(HA), SzA(SzA), SplusA(SplusA),
+		HB(HB), SzB(SzB), SplusB(SplusB), Jxy(Jxy), Jz(Jz), Hz(Hz), SzTot(SzTot) {}
 
 BDHamiltonian::~BDHamiltonian() {}
 
@@ -64,21 +85,21 @@ BDMatrix BDHamiltonian::apply(BDMatrix vector, double szTot) {
 	for (int blockInd=0; blockInd<vector.blockNum(); blockInd++) {
 		blockValue = vector.getBlockValue(blockInd);
 		i = HA->getIndexByValue(blockValue);
-		I = HA->getIndexByValue(szTot - blockValue);
+		I = HB->getIndexByValue(szTot - blockValue);
 		if ((i!=-1) && (I!=-1)) {
 			//newVector[blockInd] = (*HA)[i] * vector[blockInd] + ((*HA)[I]*(vector[blockInd].transpose())).transpose();
-			newVector[blockInd] = (*HA)[i] * vector[blockInd] + vector[blockInd]*(*HA)[I]; // transpose expansion, HA is symmetric
+			newVector[blockInd] = (*HA)[i] * vector[blockInd] + vector[blockInd]*(*HB)[I]; // transpose expansion, HA is symmetric
 
 			// newVector[blockInd] += Jz * (*SzA)[i] * ((*SzA)[I] * vector[blockInd].transpose()).transpose();
 			// newVector[blockInd] += Jz * (*SzA)[i] * vector[blockInd] * (*SzA)[I]; // transpose expansion, SzA is symmetric
 			for (int j=0; j<newVector[blockInd].rows(); j++)
 				for (int k=0; k<newVector[blockInd].cols(); k++)
-					newVector[blockInd](j,k) += Jz * vector[blockInd](j,k) * (*SzA)[i](j,j) * (*SzA)[I](k,k);
+					newVector[blockInd](j,k) += Jz * vector[blockInd](j,k) * (*SzA)[i](j,j) * (*SzB)[I](k,k);
 
 			if (blockInd>0) {
-				newVector[blockInd-1] += Jxy/2 * (*SplusA)[i-1] * vector[blockInd] * (*SplusA)[I];
+				newVector[blockInd-1] += Jxy/2 * (*SplusA)[i-1] * vector[blockInd] * (*SplusB)[I];
 				//newVector[blockInd]   += Jxy/2 * (*SplusA)[i-1].transpose() * ((*SplusA)[I]*vector[blockInd-1].transpose()).transpose();
-				newVector[blockInd]   += Jxy/2 * (*SplusA)[i-1].transpose() * vector[blockInd-1] * (*SplusA)[I].transpose(); //transpose expansion
+				newVector[blockInd]   += Jxy/2 * (*SplusA)[i-1].transpose() * vector[blockInd-1] * (*SplusB)[I].transpose(); //transpose expansion
 			}
 			newVector.setBlockValue(blockInd,blockValue);
 		}
@@ -93,8 +114,8 @@ int BDHamiltonian::dim() {
 int BDHamiltonian::dim(double szTot) {
 	int I, d=0;
 	for (int i=0; i<HA->blockNum(); i++) {
-		I = HA->getIndexByValue(szTot - HA->getBlockValue(i));
-		if (I!=-1) d +=  (*HA)[i].rows() * (*HA)[I].rows();
+		I = HB->getIndexByValue(szTot - HA->getBlockValue(i));
+		if (I!=-1) d +=  (*HA)[i].rows() * (*HB)[I].rows();
 	}
 	return d;
 }
@@ -107,7 +128,7 @@ int BDHamiltonian::blockNum() {
 int BDHamiltonian::blockNum(double szTot) {
 	int I, b=0;
 	for (int i=0; i<HA->blockNum(); i++) {
-		I = HA->getIndexByValue(szTot - HA->getBlockValue(i));
+		I = HB->getIndexByValue(szTot - HA->getBlockValue(i));
 		if (I!=-1) b++;
 	}
 	return b;
@@ -118,9 +139,9 @@ MatrixXd BDHamiltonian::toMatrix() {
 	BDMatrix vector(blockNum());
 	int I, blockInd=0, colInd = 0;
 	for (int i=0; i<HA->blockNum(); i++) {
-		I = HA->getIndexByValue(0 - HA->getBlockValue(i));
+		I = HB->getIndexByValue(0 - HA->getBlockValue(i));
 		if (I!=-1) {
-			vector[blockInd].resize((*HA)[i].rows(), (*HA)[I].rows());
+			vector[blockInd].resize((*HA)[i].rows(), (*HB)[I].rows());
 			vector[blockInd].setZero();
 			vector.setBlockValue(blockInd,HA->getBlockValue(i));
 			blockInd++;
@@ -147,4 +168,5 @@ void BDHamiltonian::print() {
 
 
 
-#endif /* BDH	AMILTONIAN_HPP_ */
+#endif
+/* BDHAMILTONIAN_HPP_ */
