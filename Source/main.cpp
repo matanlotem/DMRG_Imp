@@ -387,7 +387,7 @@ void oopDMRG(int N) {
 
 void FullDMRG(int N) {
 	double Jxy=1, Jz=1, Hz=0;
-	int D=256;
+	int D=128, maxSweeps=6;
 
 	/* ******************************************************************************** */
 	/* declare variables */
@@ -395,9 +395,9 @@ void FullDMRG(int N) {
 
 	// control variables
 	int n = 2, b = 2, sweeps = -1, counter = 0;
-	int prevOp = 0, currOp = 1, AOp = 0, BOp = N-1;
+	int currOp = 1, AOp = 0, BOp = N-1;
 	bool infinite = true, done = false, growingA = true;
-	double baseEv = 0;
+	double baseEv = 0, ISBaseEv = 0;
 
 	// operators vectors
 	vector<BDMatrix> H, Sz;
@@ -446,39 +446,43 @@ void FullDMRG(int N) {
 	Sz[N-1] = Sz[0];
 	Splus[N-1] = Splus[0];
 
+	tmpH = H[0];
+	tmpSz = Sz[0];
+	tmpSplus = Splus[0];
+
 	/* ******************************************************************************** */
 	/* start DMRG */
 	/* ******************************************************************************** */
 	while (!done) {
 		counter++;
 		/* ******************************************************************************** */
-		/* grow operators (grow O' from O) O' index: currOp, O index: prevOp */
+		/* grow operators (grow O' from O) O' index: currOp, O: tmpOp */
 		/* ******************************************************************************** */
 		// count new block number
-		b = H[prevOp].blockNum() + 1;
-		for (int i=1; i<H[prevOp].blockNum(); i++)
-			if (H[prevOp].getBlockValue(i) - 1 != H[prevOp].getBlockValue(i-1)) b++;
+		b = tmpH.blockNum() + 1;
+		for (int i=1; i<tmpH.blockNum(); i++)
+			if (tmpH.getBlockValue(i) - 1 != tmpH.getBlockValue(i-1)) b++;
 
 		DBG(printf("Creating new blocks\n"));
 		H[currOp].resize(b);
 		Sz[currOp].resize(b);
 
 		int dim1, dim2, blockInd = 0;
-		for (int i=0; i<H[prevOp].blockNum(); i++) {
+		for (int i=0; i<tmpH.blockNum(); i++) {
 			// first block if no block with SzTot-1 exists
-			if ((i==0) || (H[prevOp].getBlockValue(i) - 1 != H[prevOp].getBlockValue(i-1))) {
-				H[currOp].setBlockValue(blockInd,H[prevOp].getBlockValue(i)-0.5);
-				dim1 = H[prevOp][i].rows();
+			if ((i==0) || (tmpH.getBlockValue(i) - 1 != tmpH.getBlockValue(i-1))) {
+				H[currOp].setBlockValue(blockInd,tmpH.getBlockValue(i)-0.5);
+				dim1 = tmpH[i].rows();
 
 				Sz[currOp][blockInd] = MatrixXd::Identity(dim1,dim1) * -0.5;
-				H[currOp][blockInd] = H[prevOp][i] + Jz * Sz[prevOp][i] * Sz[currOp][blockInd];
+				H[currOp][blockInd] = tmpH[i] + Jz * tmpSz[i] * Sz[currOp][blockInd];
 				for (int j=0; j<dim1; j++) H[currOp][blockInd](j,j) += -0.5*Hz;
 			}
 			// if block with SzTot-1 exists
 			else {
-				H[currOp].setBlockValue(blockInd,H[prevOp].getBlockValue(i)-0.5);
-				dim1 = H[prevOp][i-1].rows();
-				dim2 = H[prevOp][i].rows();
+				H[currOp].setBlockValue(blockInd,tmpH.getBlockValue(i)-0.5);
+				dim1 = tmpH[i-1].rows();
+				dim2 = tmpH[i].rows();
 
 				H[currOp][blockInd] = MatrixXd(dim1+dim2,dim1+dim2);
 				Sz[currOp][blockInd] = MatrixXd(dim1+dim2,dim1+dim2);
@@ -486,29 +490,29 @@ void FullDMRG(int N) {
 
 				// add spin up block
 				for (int j=0; j<dim1; j++) Sz[currOp][i](j,j) = 0.5;
-				H[currOp][blockInd].topLeftCorner(dim1,dim1) = H[prevOp][i-1] +
-							Jz * Sz[prevOp][i-1] * Sz[currOp][blockInd].topLeftCorner(dim1,dim1);
+				H[currOp][blockInd].topLeftCorner(dim1,dim1) = tmpH[i-1] +
+							Jz * tmpSz[i-1] * Sz[currOp][blockInd].topLeftCorner(dim1,dim1);
 				for (int j=0; j<dim1; j++) H[currOp][blockInd](j,j) += 0.5*Hz;
 
 				// add spin down block
 				for (int j=dim1; j<dim1+dim2; j++) Sz[currOp][blockInd](j,j) = -0.5;
-				H[currOp][blockInd].bottomRightCorner(dim2,dim2) = H[prevOp][i] +
-							Jz * Sz[prevOp][i] * Sz[currOp][blockInd].bottomRightCorner(dim2,dim2);
+				H[currOp][blockInd].bottomRightCorner(dim2,dim2) = tmpH[i] +
+							Jz * tmpSz[i] * Sz[currOp][blockInd].bottomRightCorner(dim2,dim2);
 				for (int j=dim1; j<dim1+dim2; j++) H[currOp][blockInd](j,j) += -0.5*Hz;
 
 				// add old block movers Jxy/2 * (S+- + S-+)
-				H[currOp][blockInd].topRightCorner(dim1,dim2) = Jxy/2 * Splus[prevOp][i-1];
-				H[currOp][blockInd].bottomLeftCorner(dim2,dim1) = Jxy/2 * Splus[prevOp][i-1].transpose();
+				H[currOp][blockInd].topRightCorner(dim1,dim2) = Jxy/2 * tmpSplus[i-1];
+				H[currOp][blockInd].bottomLeftCorner(dim2,dim1) = Jxy/2 * tmpSplus[i-1].transpose();
 			}
 			blockInd++;
 
 			// if last block or no block with SzTot+1 exists
-			if ((i==H[prevOp].blockNum() - 1) || (H[prevOp].getBlockValue(i) + 1 != H[prevOp].getBlockValue(i+1))) {
-				H[currOp].setBlockValue(blockInd,H[prevOp].getBlockValue(i)+0.5);
-				dim1 = H[prevOp][i].rows();
+			if ((i==tmpH.blockNum() - 1) || (tmpH.getBlockValue(i) + 1 != tmpH.getBlockValue(i+1))) {
+				H[currOp].setBlockValue(blockInd,tmpH.getBlockValue(i)+0.5);
+				dim1 = tmpH[i].rows();
 
 				Sz[currOp][blockInd] = MatrixXd::Identity(dim1,dim1) * 0.5;
-				H[currOp][blockInd] = H[prevOp][i] + Jz * Sz[prevOp][i] * Sz[currOp][blockInd];
+				H[currOp][blockInd] = tmpH[i] + Jz * tmpSz[i] * Sz[currOp][blockInd];
 				for (int j=0; j<dim1; j++) H[currOp][blockInd](j,j) += 0.5*Hz;
 
 				blockInd++;
@@ -520,7 +524,7 @@ void FullDMRG(int N) {
 		Splus[currOp].resize(&H[currOp]);
 		for (int i=0; i<Splus[currOp].blockNum(); i++) {
 			if (H[currOp].getBlockValue(i)+1 == H[currOp].getBlockValue(i+1)) {
-				dim1 = H[prevOp][H[prevOp].getIndexByValue(H[currOp].getBlockValue(i)+0.5)].rows();
+				dim1 = tmpH[tmpH.getIndexByValue(H[currOp].getBlockValue(i)+0.5)].rows();
 				dim2 = H[currOp][i].rows();
 
 				if ((dim1==dim2) && (dim1 == H[currOp][i+1].cols()))
@@ -549,7 +553,13 @@ void FullDMRG(int N) {
 		}
 
 
-		if (H[currOp].rows() > D) { //truncate
+		if (H[currOp].rows() <= D) {
+			tmpH = H[currOp];
+			tmpSz = Sz[currOp];
+			tmpSplus = Splus[currOp];
+		}
+
+		else { //truncate
 			/* ******************************************************************************** */
 			/* create AB Hamiltonian (using A & B opertators) */
 			/* ******************************************************************************** */
@@ -584,7 +594,7 @@ void FullDMRG(int N) {
 			DBG(printf("finding AB base state with Lanczos\n"));
 			ABBaseState = oopLanczos(HAB, baseStateMatrix);
 			baseEv = ABBaseState.dot(HAB->apply(ABBaseState));
-			DBG(printf("base Ev: %f\n", baseEv));
+			DBG(printf("base Ev: %.20f\n", baseEv));
 
 			/* ******************************************************************************** */
 			/* density matrix - calculate, diagonalize, choose new basis */
@@ -673,28 +683,20 @@ void FullDMRG(int N) {
 				}
 			}
 
-			H[currOp] = tmpH;
-			Sz[currOp] = tmpSz;
-			Splus[currOp] = tmpSplus;
-
 			delete HAB;
 		}
 
 		/* ******************************************************************************** */
 		/* controller */
 		/* ******************************************************************************** */
-		DBG(printf("previous operator indices: AOp=%d, BOp=%d, prevOp=%d, currOp=%d\n",AOp,BOp,prevOp,currOp));
+		DBG(printf("previous operator indices: AOp=%d, BOp=%d, currOp=%d\n",AOp,BOp,currOp));
 		if (infinite) {
 			n += 2;
-			if (AOp+1 == BOp) infinite = false; // infinite-system DMRG is done
+			if (AOp+1 == BOp) {
+				infinite = false; // infinite-system DMRG is done
+				ISBaseEv = baseEv;
+			}
 			else {
-				// mirror truncated operators
-				H[BOp] = H[AOp];
-				Sz[BOp] = Sz[AOp];
-				Splus[BOp] = Splus[AOp];
-
-				// next operator
-				prevOp = currOp;
 				currOp++;
 
 				DBG(printf("Going to %d sites\n", n+2));
@@ -705,32 +707,43 @@ void FullDMRG(int N) {
 			//if ((1<<(N-1-BOp) <= D) || (1<<(AOp+1) <= D)) sweeps++;
 			if ((AOp + BOp + 1) == N) sweeps++;
 
-			done = sweeps>=4;
+			done = sweeps>=maxSweeps;
 
 
 			// move right (grow A)
 			if ((growingA && (N-1-BOp >= log(D)/log(2))) ||
 			    (!growingA && (AOp+1 < log(D)/log(2)))) {
+
+				if (!growingA) {
+					tmpH = H[AOp];
+					tmpSz = Sz[AOp];
+					tmpSplus = Splus[AOp];
+					growingA = true;
+				}
+
 				AOp++;
 				BOp++;
 				currOp = AOp;
-				prevOp = currOp - 1;
-				growingA = true;
 			}
 
 			// move left (grow B)
 			else {
+				if (growingA) {
+					tmpH = H[BOp];
+					tmpSz = Sz[BOp];
+					tmpSplus = Splus[BOp];
+					growingA = false;
+				}
 				BOp--;
 				AOp--;
 				currOp = BOp;
-				prevOp = currOp + 1;
-				growingA = false;
 			}
 		}
-		DBG(printf("next operator indices: AOp=%d, BOp=%d, prevOp=%d, currOp=%d\n",AOp,BOp,prevOp,currOp));
+		DBG(printf("next operator indices: AOp=%d, BOp=%d, currOp=%d\n",AOp,BOp,currOp));
 
 	}
-	printf("Base state eigenvalue for %d site Heisenberg model: %.20f\n", n, baseEv);
+	printf("Base state eigenvalue for %d site Heisenberg model IDMRG: %.20f\n", n, ISBaseEv);
+	printf("Base state eigenvalue for %d site Heisenberg model FDMRG: %.20f\n", n, baseEv);
 	printf("Bethe Ansatz eigenvalue in thermodynamical limit: %.20f\n", n*(0.25 - std::log(2.0)));
 	printf("Total iterations: %d\n",counter);
 }
