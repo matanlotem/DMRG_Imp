@@ -8,6 +8,7 @@
 #include <stdlib.h>
 #include <iostream>
 #include <sstream>
+#include <string>
 #include <algorithm>
 #include <ctime>
 #include <vector>
@@ -61,6 +62,7 @@ BDMatrix oopLanczos(BDHamiltonian *matrix, BDMatrix baseState) {
 	int n=1;
 	bool converged = false;
 	double currEv, prevEv=0;
+
 	//iterate to find base state
 	while (n<m && norm > 0 && !converged) {
 		b2 = 1/norm; // 1/<u_n-1|u_n-1>
@@ -385,16 +387,16 @@ void oopDMRG(int N) {
 
 void FullDMRG(int N) {
 	double Jxy=1, Jz=1, Hz=0;
-	int D=128;
+	int D=256;
 
 	/* ******************************************************************************** */
 	/* declare variables */
 	/* ******************************************************************************** */
 
 	// control variables
-	int n = 2, b = 2, sweeps = 0;
+	int n = 2, b = 2, sweeps = -1, counter = 0;
 	int prevOp = 0, currOp = 1, AOp = 0, BOp = N-1;
-	bool infinite = true, done = false;
+	bool infinite = true, done = false, growingA = true;
 	double baseEv = 0;
 
 	// operators vectors
@@ -448,6 +450,7 @@ void FullDMRG(int N) {
 	/* start DMRG */
 	/* ******************************************************************************** */
 	while (!done) {
+		counter++;
 		/* ******************************************************************************** */
 		/* grow operators (grow O' from O) O' index: currOp, O index: prevOp */
 		/* ******************************************************************************** */
@@ -550,8 +553,9 @@ void FullDMRG(int N) {
 			/* ******************************************************************************** */
 			/* create AB Hamiltonian (using A & B opertators) */
 			/* ******************************************************************************** */
+			int SzTot = 0;
 			DBG(printf("creating AB Hamiltonian\n"));
-			HAB = new BDHamiltonian(&H[AOp], &Sz[AOp], &Splus[AOp], &H[BOp], &Sz[BOp], &Splus[BOp], Jxy, Jz, Hz);
+			HAB = new BDHamiltonian(&H[AOp], &Sz[AOp], &Splus[AOp], &H[BOp], &Sz[BOp], &Splus[BOp], Jxy, Jz, Hz, SzTot);
 
 			/* ******************************************************************************** */
 			/* guess AB base state */
@@ -563,7 +567,7 @@ void FullDMRG(int N) {
 			baseStateMatrix.resize(HAB->blockNum());
 			int I, vecInd=0, blockInd=0;
 			for (int i=0; i<H[AOp].blockNum(); i++) {
-				I = H[BOp].getIndexByValue(0 - H[AOp].getBlockValue(i));
+				I = H[BOp].getIndexByValue(SzTot - H[AOp].getBlockValue(i));
 				if (I!=-1) {
 					baseStateMatrix[blockInd].resize(H[AOp][i].rows(), H[BOp][I].rows());
 					for (int j=0; j<H[AOp][i].rows(); j++)
@@ -588,9 +592,18 @@ void FullDMRG(int N) {
 			//create density matrix
 			DBG(printf("creating density matrix\n"));
 			DensityMatrix.resize(HAB->blockNum());
-			for (int i=0; i<DensityMatrix.blockNum(); i++) {
-				DensityMatrix[i] = ABBaseState[i]*ABBaseState[i].transpose();
-				DensityMatrix.setBlockValue(i, ABBaseState.getBlockValue(i));
+			if (growingA) {
+				for (int i=0; i<DensityMatrix.blockNum(); i++) {
+					DensityMatrix[i] = ABBaseState[i]*ABBaseState[i].transpose();
+					DensityMatrix.setBlockValue(i, ABBaseState.getBlockValue(i));
+				}
+			}
+			else {
+				for (int i=0; i<DensityMatrix.blockNum(); i++) {
+					// reverse order so Sz is sorted in acceding order
+					DensityMatrix[DensityMatrix.blockNum()-i-1] = ABBaseState[i].transpose()*ABBaseState[i];
+					DensityMatrix.setBlockValue(DensityMatrix.blockNum()-i-1, SzTot - ABBaseState.getBlockValue(i));
+				}
 			}
 
 			// diagonalize density matrix
@@ -638,6 +651,7 @@ void FullDMRG(int N) {
 			blockInd = 0;
 			int currInd;
 			double blockValue;
+
 			for (int i=0; i < (int) newBasisVectors.size(); i++) {
 				if (newBasisVectors[i] > 0) {
 					blockValue = DensityMatrix.getBlockValue(i);
@@ -669,6 +683,7 @@ void FullDMRG(int N) {
 		/* ******************************************************************************** */
 		/* controller */
 		/* ******************************************************************************** */
+		DBG(printf("previous operator indices: AOp=%d, BOp=%d, prevOp=%d, currOp=%d\n",AOp,BOp,prevOp,currOp));
 		if (infinite) {
 			n += 2;
 			if (AOp+1 == BOp) infinite = false; // infinite-system DMRG is done
@@ -687,33 +702,37 @@ void FullDMRG(int N) {
 		}
 
 		if (!infinite) {
-			if ((1<<(N-1-BOp) <= D) || (1<<(AOp+1) <= D)) sweeps++;
+			//if ((1<<(N-1-BOp) <= D) || (1<<(AOp+1) <= D)) sweeps++;
+			if ((AOp + BOp + 1) == N) sweeps++;
 
-			done = sweeps>0;
+			done = sweeps>=4;
 
 
 			// move right (grow A)
-			if (((prevOp < currOp) && (1<<(N-1-BOp) <= D)) ||
-			    ((prevOp > currOp) && (1<<(AOp+1) <= D))) {
+			if ((growingA && (N-1-BOp >= log(D)/log(2))) ||
+			    (!growingA && (AOp+1 < log(D)/log(2)))) {
 				AOp++;
 				BOp++;
 				currOp = AOp;
 				prevOp = currOp - 1;
+				growingA = true;
 			}
 
 			// move left (grow B)
 			else {
 				BOp--;
 				AOp--;
-				currOp = AOp;
+				currOp = BOp;
 				prevOp = currOp + 1;
+				growingA = false;
 			}
 		}
+		DBG(printf("next operator indices: AOp=%d, BOp=%d, prevOp=%d, currOp=%d\n",AOp,BOp,prevOp,currOp));
 
 	}
-
 	printf("Base state eigenvalue for %d site Heisenberg model: %.20f\n", n, baseEv);
 	printf("Bethe Ansatz eigenvalue in thermodynamical limit: %.20f\n", n*(0.25 - std::log(2.0)));
+	printf("Total iterations: %d\n",counter);
 }
 
 int main(int argc, char* argv[])
