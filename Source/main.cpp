@@ -8,6 +8,8 @@
 #include <stdlib.h>
 #include <iostream>
 #include <sstream>
+#include <fstream>
+#include <iomanip>
 #include <string>
 #include <algorithm>
 #include <ctime>
@@ -387,17 +389,19 @@ void oopDMRG(int N) {
 
 void FullDMRG(int N) {
 	double Jxy=1, Jz=1, Hz=0;
-	int D=128, maxSweeps=6;
+	int D=128, maxSweeps=10;
 
 	/* ******************************************************************************** */
 	/* declare variables */
 	/* ******************************************************************************** */
 
 	// control variables
-	int n = 2, b = 2, sweeps = -1, counter = 0;
+	int n = 2, b = 2, sweeps = 0, counter = 0;
 	int currOp = 1, AOp = 0, BOp = N-1;
 	bool infinite = true, done = false, growingA = true;
-	double baseEv = 0, ISBaseEv = 0;
+	double tolerance=0.0000000001;
+	double baseEv;
+	vector<double> baseEvFinite;
 
 	// operators vectors
 	vector<BDMatrix> H, Sz;
@@ -694,7 +698,6 @@ void FullDMRG(int N) {
 			n += 2;
 			if (AOp+1 == BOp) {
 				infinite = false; // infinite-system DMRG is done
-				ISBaseEv = baseEv;
 			}
 			else {
 				currOp++;
@@ -704,10 +707,15 @@ void FullDMRG(int N) {
 		}
 
 		if (!infinite) {
-			//if ((1<<(N-1-BOp) <= D) || (1<<(AOp+1) <= D)) sweeps++;
-			if ((AOp + BOp + 1) == N) sweeps++;
+			// sweeps control
+			if ((AOp + BOp + 1) == N) {
+				// done if maxSweeps or baseEv converges
+				done = ((sweeps >= maxSweeps) ||
+						(sweeps > 1 && abs(baseEv - baseEvFinite[baseEvFinite.size()-1])<tolerance));
 
-			done = sweeps>=maxSweeps;
+				baseEvFinite.push_back(baseEv);
+				sweeps++;
+			}
 
 
 			// move right (grow A)
@@ -742,10 +750,18 @@ void FullDMRG(int N) {
 		DBG(printf("next operator indices: AOp=%d, BOp=%d, currOp=%d\n",AOp,BOp,currOp));
 
 	}
-	printf("Base state eigenvalue for %d site Heisenberg model IDMRG: %.20f\n", n, ISBaseEv);
-	printf("Base state eigenvalue for %d site Heisenberg model FDMRG: %.20f\n", n, baseEv);
+	printf("Base state eigenvalue for %d site Heisenberg model IDMRG: %.20f\n", n, baseEvFinite[0]);
+	printf("Base state eigenvalue for %d site Heisenberg model FDMRG: %.20f\n", n, baseEvFinite[baseEvFinite.size()-1]);
 	printf("Bethe Ansatz eigenvalue in thermodynamical limit: %.20f\n", n*(0.25 - std::log(2.0)));
+	printf("Total sweeps: %d\n",sweeps);
 	printf("Total iterations: %d\n",counter);
+
+	ofstream file;
+	file.open("../Output/tmp.xls");
+	for (int i=0; i < (int) baseEvFinite.size(); i++)
+		file << std::fixed << std::setprecision(20) << baseEvFinite[i] << endl;
+	file.close();
+
 }
 
 int main(int argc, char* argv[])
