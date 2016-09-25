@@ -36,6 +36,7 @@ using namespace std;
 
 BDMatrix oopLanczos(BDHamiltonian *matrix, BDMatrix baseState) {
 	int m = min(500, matrix->dim());
+	int convIter = 5;
 	double a,b2,norm;
 	double tol = 0.0000001;
 
@@ -85,7 +86,7 @@ BDMatrix oopLanczos(BDHamiltonian *matrix, BDMatrix baseState) {
 		n++;
 
 		// check convergence
-		if (n%10 == 0) {
+		if (n%convIter == 0) {
 			tmpSolver.compute(KMatrix.block(0,0,n,n),false);
 			currEv= tmpSolver.eigenvalues()[0];
 			converged = abs(currEv - prevEv) < tol;
@@ -402,6 +403,7 @@ void FullDMRG(int N) {
 	double tolerance=0.0000000001;
 	double baseEv;
 	vector<double> baseEvFinite;
+	double blockValue;
 
 	// operators vectors
 	vector<BDMatrix> H, Sz;
@@ -423,6 +425,8 @@ void FullDMRG(int N) {
 	// basis transformation
 	BDMatrix tmpH(1), tmpSz(1);
 	BODMatrix tmpSplus(1);
+	vector<BDMatrix> TransOp;
+
 
 	/* ******************************************************************************** */
 	/* initialize operators */
@@ -432,6 +436,7 @@ void FullDMRG(int N) {
 		H.push_back(BDMatrix(2));
 		Sz.push_back(BDMatrix(2));
 		Splus.push_back(BODMatrix(1));
+		TransOp.push_back(BDMatrix(2));
 	}
 
 	Sz[0][0] = MatrixXd::Identity(1,1) * -0.5;
@@ -575,22 +580,108 @@ void FullDMRG(int N) {
 			/* guess AB base state */
 			/* ******************************************************************************** */
 			DBG(printf("creating AB initial base state\n"));
-			baseState.resize(HAB->dim());
-			baseState.setRandom();
-			baseState = baseState / baseState.norm();
+			if (infinite || !infinite) {
+				baseState.resize(HAB->dim());
+				baseState.setRandom();
+				baseState = baseState / baseState.norm();
+			}
+
+			/*if (!infinite) {
+				printf("H AOp BOp\n");
+				H[AOp].printFullStats();
+				H[BOp].printFullStats();
+				printf("New base state\n");
+				baseStateMatrix.printFullStats();
+				printf("Old base state\n");
+				ABBaseState.printFullStats();
+				printf("TransOp -1 0 +1\n");
+				TransOp[currOp-1].printFullStats();
+				TransOp[currOp].printFullStats();
+				TransOp[currOp+1].printFullStats();
+				printf("currOp=%d, AOp=%d, BOp=%d\n",currOp, AOp, BOp);
+
+			}*/
+
 			baseStateMatrix.resize(HAB->blockNum());
-			int I, vecInd=0, blockInd=0;
+			int I, vecInd=0, blockInd=0, LInd, RInd;
 			for (int i=0; i<H[AOp].blockNum(); i++) {
-				I = H[BOp].getIndexByValue(SzTot - H[AOp].getBlockValue(i));
+				blockValue = H[AOp].getBlockValue(i);
+				I = H[BOp].getIndexByValue(SzTot - blockValue);
 				if (I!=-1) {
 					baseStateMatrix[blockInd].resize(H[AOp][i].rows(), H[BOp][I].rows());
-					for (int j=0; j<H[AOp][i].rows(); j++)
-						for (int k=0; k<H[BOp][I].rows(); k++)
-							baseStateMatrix[blockInd](j,k) = baseState(vecInd++);
 					baseStateMatrix.setBlockValue(blockInd, H[AOp].getBlockValue(i));
+					if (infinite || TransOp[currOp+1].rows() <= D || TransOp[currOp-1].rows() <= D) {
+						for (int j=0; j<H[AOp][i].rows(); j++)
+							for (int k=0; k<H[BOp][I].rows(); k++)
+								baseStateMatrix[blockInd](j,k) = baseState(vecInd++);
+					}
+					else {
+						//printf("i=%d, I=%d, blockInd=%d, blockValue=%f\n",i,I,blockInd,blockValue);
+
+						if (growingA) {
+							//printf("block dim: %dx%d\n", (int) baseStateMatrix[blockInd].rows(), (int) baseStateMatrix[blockInd].cols());
+							//baseStateMatrix[blockInd].setZero();
+							LInd = TransOp[currOp-1].getIndexByValue(blockValue - 0.5);
+							RInd = TransOp[currOp+1].getIndexByValue(SzTot - blockValue);
+							//printf("LInd=%d, RInd=%d\n",LInd, RInd);
+							if (LInd != -1 && RInd != -1)
+								baseStateMatrix[blockInd].topRows(TransOp[currOp-1][LInd].cols()) =
+										TransOp[currOp-1][LInd].transpose() *
+										ABBaseState[ABBaseState.getIndexByValue(blockValue - 0.5)].leftCols(TransOp[currOp+1][RInd].cols()) *
+										TransOp[currOp+1][RInd].transpose();
+
+							LInd = TransOp[currOp-1].getIndexByValue(blockValue + 0.5);
+							RInd = TransOp[currOp+1].getIndexByValue(SzTot - blockValue);
+							//printf("LInd=%d, RInd=%d\n",LInd, RInd);
+							if (LInd != -1 && RInd != -1)
+								baseStateMatrix[blockInd].bottomRows(TransOp[currOp-1][LInd].cols()) =
+										TransOp[currOp-1][LInd].transpose() *
+										ABBaseState[ABBaseState.getIndexByValue(blockValue + 0.5)].rightCols(TransOp[currOp+1][RInd].cols()) *
+										TransOp[currOp+1][RInd].transpose();
+						}
+						else {
+							//printf("block %d (%.1f) dim: %dx%d\n", blockInd, blockValue, (int) baseStateMatrix[blockInd].rows(), (int) baseStateMatrix[blockInd].cols());
+							baseStateMatrix[blockInd].setZero();
+							LInd = TransOp[currOp-1].getIndexByValue(blockValue);
+							RInd = TransOp[currOp+1].getIndexByValue(SzTot - blockValue + 0.5);
+							//printf("LInd=%d, RInd=%d\n",LInd, RInd);
+							if (LInd != -1 && RInd != -1)
+								baseStateMatrix[blockInd].rightCols(TransOp[currOp+1][RInd].cols()) =
+										TransOp[currOp-1][LInd] *
+										ABBaseState[ABBaseState.getIndexByValue(blockValue - 0.5)].bottomRows(TransOp[currOp-1][LInd].cols()) *
+										TransOp[currOp+1][RInd];
+
+							LInd = TransOp[currOp-1].getIndexByValue(blockValue);
+							RInd = TransOp[currOp+1].getIndexByValue(SzTot - blockValue - 0.5);
+							//printf("LInd=%d, RInd=%d\n",LInd, RInd);
+							if (LInd != -1 && RInd != -1)
+								baseStateMatrix[blockInd].leftCols(TransOp[currOp+1][RInd].cols()) =
+										TransOp[currOp-1][LInd] *
+										ABBaseState[ABBaseState.getIndexByValue(blockValue + 0.5)].topRows(TransOp[currOp-1][LInd].cols()) *
+										TransOp[currOp+1][RInd];
+						}
+
+					}
+
 					blockInd++;
 				}
 			}
+			/*if (!(infinite || TransOp[currOp+1].rows() <= D || TransOp[currOp-1].rows() <= D) && !growingA) {
+				baseStateMatrix.printFullStats();
+				printf("%d\n",counter);
+				if (counter>24)
+					abort();
+			}*/
+
+			/*printf("old base state norm = %f\n", ABBaseState.norm());
+			for (int i=0; i< ABBaseState.blockNum(); i++)
+				printf("%f  ", ABBaseState[i].norm());
+			printf("\n");
+			printf("new base state norm = %f\n", baseStateMatrix.norm());
+			for (int i=0; i< baseStateMatrix.blockNum(); i++)
+				printf("%f  ", baseStateMatrix[i].norm());
+			printf("\n");*/
+			//baseStateMatrix.printFullStats();
 
 			/* ******************************************************************************** */
 			/* find AB base state with Lanczos */
@@ -653,6 +744,19 @@ void FullDMRG(int N) {
 			for (int i=0; i<(int) newBasisVectors.size(); i++)
 				if (newBasisVectors[i] > 0) b++;
 
+			// create transformation opertator matrix
+			TransOp[currOp].resize(b);
+			blockInd = 0;
+			for (int i=0; i<(int) newBasisVectors.size(); i++) {
+				if (newBasisVectors[i] > 0) {
+					TransOp[currOp][blockInd] = blockSolvers[i].eigenvectors().rightCols(newBasisVectors[i]);
+					TransOp[currOp].setBlockValue(blockInd, DensityMatrix.getBlockValue(i));
+					blockInd++;
+				}
+			}
+			if (infinite) TransOp[BOp] = TransOp[AOp];
+
+
 			/* ******************************************************************************** */
 			/* transform operators to new basis */
 			/* ******************************************************************************** */
@@ -662,29 +766,18 @@ void FullDMRG(int N) {
 			tmpH.resize(b);
 			tmpSplus.resize(b-1);
 
-			blockInd = 0;
 			int currInd;
-			double blockValue;
 
-			for (int i=0; i < (int) newBasisVectors.size(); i++) {
-				if (newBasisVectors[i] > 0) {
-					blockValue = DensityMatrix.getBlockValue(i);
-					currInd = H[currOp].getIndexByValue(blockValue);
+			for (int i=0; i<TransOp[currOp].blockNum(); i++) {
+				blockValue = TransOp[currOp].getBlockValue(i);
+				currInd = H[currOp].getIndexByValue(blockValue);
 
-					tmpSz[blockInd] = blockSolvers[i].eigenvectors().rightCols(newBasisVectors[i]).transpose() *
-							            Sz[currOp][currInd] * blockSolvers[i].eigenvectors().rightCols(newBasisVectors[i]);
-					tmpSz.setBlockValue(blockInd, blockValue);
+				tmpSz[i] = TransOp[currOp][i].transpose() * Sz[currOp][currInd] * TransOp[currOp][i];
+				tmpH[i] = TransOp[currOp][i].transpose() * H[currOp][currInd] * TransOp[currOp][i];
+				if (i>0) tmpSplus[i-1] = TransOp[currOp][i-1].transpose() * Splus[currOp][currInd - 1] * TransOp[currOp][i];
+				tmpSz.setBlockValue(i, blockValue);
+				tmpH.setBlockValue(i, blockValue);
 
-					tmpH[blockInd] = blockSolvers[i].eigenvectors().rightCols(newBasisVectors[i]).transpose() *
-									   H[currOp][currInd] * blockSolvers[i].eigenvectors().rightCols(newBasisVectors[i]);
-					tmpH.setBlockValue(blockInd, blockValue);
-
-					if (blockInd>0)
-						tmpSplus[blockInd-1] = blockSolvers[i-1].eigenvectors().rightCols(newBasisVectors[i-1]).transpose() *
-											     Splus[currOp][currInd-1] * blockSolvers[i].eigenvectors().rightCols(newBasisVectors[i]);
-
-					blockInd++;
-				}
 			}
 
 			delete HAB;
@@ -694,10 +787,32 @@ void FullDMRG(int N) {
 		/* controller */
 		/* ******************************************************************************** */
 		DBG(printf("previous operator indices: AOp=%d, BOp=%d, currOp=%d\n",AOp,BOp,currOp));
+		//printf("   H[AOp]:  "); H[AOp].printStats();
+		//printf("   H[BOp]:  "); H[BOp].printStats();
+
 		if (infinite) {
 			n += 2;
 			if (AOp+1 == BOp) {
 				infinite = false; // infinite-system DMRG is done
+
+				//create dummy transformation operators
+				for (int i=0; i<N/2; i++) {
+					if (H[i].rows() <= D) {
+						TransOp[i] = H[i];
+						for(int j=0; j<TransOp[i].blockNum(); j++)
+							TransOp[i][j].setIdentity();
+						TransOp[N-i-1] = TransOp[i];
+					}
+				}
+
+				for (int i=0; i<N; i++) H[i].printStats();
+				printf("\n");
+				for (int i=0; i<N; i++) {
+					printf("%d  ",i);
+					H[i].printFullStats();
+				}
+				printf("\n");
+				//abort();
 			}
 			else {
 				currOp++;
@@ -719,8 +834,9 @@ void FullDMRG(int N) {
 
 
 			// move right (grow A)
+			// //***goes one extra step
 			if ((growingA && (N-1-BOp >= log(D)/log(2))) ||
-			    (!growingA && (AOp+1 < log(D)/log(2)))) {
+			    (!growingA && (AOp < log(D)/log(2)))) {
 
 				if (!growingA) {
 					tmpH = H[AOp];
@@ -748,6 +864,8 @@ void FullDMRG(int N) {
 			}
 		}
 		DBG(printf("next operator indices: AOp=%d, BOp=%d, currOp=%d\n",AOp,BOp,currOp));
+		//printf("   H[AOp]:  "); H[AOp].printStats();
+		//printf("   H[BOp]:  "); H[BOp].printStats();
 
 	}
 	printf("Base state eigenvalue for %d site Heisenberg model IDMRG: %.20f\n", n, baseEvFinite[0]);

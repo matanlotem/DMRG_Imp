@@ -86,7 +86,6 @@ BDHamiltonian::BDHamiltonian(BDMatrix * HA, BDMatrix * SzA, BODMatrix * SplusA,
 BDHamiltonian::~BDHamiltonian() {}
 
 void BDHamiltonian::SplusOpt() {
-	printf("A\n");
 	SplusAOpt.resize(SplusA->blockNum());
 	for (int b=0; b<SplusA->blockNum(); b++) {
 		SplusAOpt[b] = 0;
