@@ -24,33 +24,34 @@
 using namespace Eigen;
 using namespace std;
 
-#define DEBUG = false
+/*#define DEBUG = false
 #ifdef DEBUG
 #define DBG(x) (x)
-#else
+#else*/
 #define DBG(x)
-#endif
+//#endif
 
 
 
 
-BDMatrix oopLanczos(BDHamiltonian *matrix, BDMatrix baseState) {
+BDMatrix oopLanczos(BDHamiltonian *matrix, BDMatrix baseState, bool keepVectors, int convIter, double tol) {
 	int m = min(500, matrix->dim());
-	int convIter = 5;
 	double a,b2,norm;
-	double tol = 0.0000001;
 
 	BDMatrix prevState(baseState.blockNum()),
 			  currState(baseState.blockNum()),
 			  tmpState(baseState.blockNum()),
 			  outputState(baseState.blockNum());
 
+	vector<BDMatrix> allStates;
+
 	MatrixXd KMatrix(m,m);
-	SelfAdjointEigenSolver<MatrixXd> solver, tmpSolver;
+	SelfAdjointEigenSolver<MatrixXd> solver;
 	KMatrix.setZero();
 
 	//first iteration
 	currState = baseState;
+	if (keepVectors) allStates.push_back(currState);
 
 	norm = currState.norm();
 	norm = norm*norm; // <u_n|u_n>
@@ -68,6 +69,7 @@ BDMatrix oopLanczos(BDHamiltonian *matrix, BDMatrix baseState) {
 
 	//iterate to find base state
 	while (n<m && norm > 0 && !converged) {
+		if (keepVectors) allStates.push_back(currState);
 		b2 = 1/norm; // 1/<u_n-1|u_n-1>
 		norm = currState.norm();
 		norm = norm*norm; // <u_n|u_n>
@@ -87,14 +89,14 @@ BDMatrix oopLanczos(BDHamiltonian *matrix, BDMatrix baseState) {
 
 		// check convergence
 		if (n%convIter == 0) {
-			tmpSolver.compute(KMatrix.block(0,0,n,n),false);
-			currEv= tmpSolver.eigenvalues()[0];
+			solver.compute(KMatrix.block(0,0,n,n),false);
+			currEv= solver.eigenvalues()[0];
 			converged = abs(currEv - prevEv) < tol;
 			prevEv = currEv;
 		}
 	}
 
-	printf("%d iterations\n",n);
+	//printf("%d iterations\n",n);
 	if (n<m) {
 		MatrixXd tmpKMatrix = KMatrix.block(0,0,n,n);
 		KMatrix = tmpKMatrix;
@@ -107,49 +109,67 @@ BDMatrix oopLanczos(BDHamiltonian *matrix, BDMatrix baseState) {
 	// calculate eigenvector
 	VectorXd minEigenVector = solver.eigenvectors().col(0);
 
-	currState = baseState;
 
-	//outputState = currState / currState.norm() * minEigenVector(0);
-	for (int b=0; b<currState.blockNum(); b++) outputState[b] = currState[b] / currState.norm() * minEigenVector(0);
+	if (keepVectors) {
+		for (int b=0; b<outputState.blockNum(); b++) outputState[b] = 0 * baseState[b];
 
-	norm = currState.norm();
-	norm = norm*norm; // <u_n|u_n>
-	tmpState = matrix->apply(currState); // H|u_n>
-	a = tmpState.dot(currState) / norm; // <u_n|H|u_n>/<u_n|u_n>
+		for (int n=0; n<m; n++)
+			for (int b=0; b<outputState.blockNum(); b++)
+				outputState[b] += allStates[n][b] / allStates[n].norm() * minEigenVector(n);
+	}
 
-	prevState = currState;
-	//currState = tmpState - a*currState;
-	for (int b=0; b<currState.blockNum(); b++) currState[b] = tmpState[b] - a*currState[b];
+	else {
+		currState = baseState;
 
-	n=1;
-	while (n<m) {
-		//outputState += currState / currState.norm() *minEigenVector(n);;
-		for (int b=0; b<currState.blockNum(); b++) outputState[b] += currState[b] / currState.norm() * minEigenVector(n);
+		//outputState = currState / currState.norm() * minEigenVector(0);
+		for (int b=0; b<currState.blockNum(); b++) outputState[b] = currState[b] / currState.norm() * minEigenVector(0);
 
-		b2 = 1/norm; // 1/<u_n-1|u_n-1>
 		norm = currState.norm();
 		norm = norm*norm; // <u_n|u_n>
-		b2 *= norm; // <u_n|u_n>/<u_n-1|u_n-1>
-
 		tmpState = matrix->apply(currState); // H|u_n>
 		a = tmpState.dot(currState) / norm; // <u_n|H|u_n>/<u_n|u_n>
 
-
-		//tmpState = tmpState - a*currState - b2*prevState;
-		for (int b=0; b<currState.blockNum(); b++) tmpState[b] = tmpState[b] - a*currState[b] - b2*prevState[b];
 		prevState = currState;
-		currState = tmpState;
+		//currState = tmpState - a*currState;
+		for (int b=0; b<currState.blockNum(); b++) currState[b] = tmpState[b] - a*currState[b];
 
-		n++;
+		n=1;
+		while (n<m) {
+			//outputState += currState / currState.norm() *minEigenVector(n);;
+			for (int b=0; b<currState.blockNum(); b++) outputState[b] += currState[b] / currState.norm() * minEigenVector(n);
+
+			b2 = 1/norm; // 1/<u_n-1|u_n-1>
+			norm = currState.norm();
+			norm = norm*norm; // <u_n|u_n>
+			b2 *= norm; // <u_n|u_n>/<u_n-1|u_n-1>
+
+			tmpState = matrix->apply(currState); // H|u_n>
+			a = tmpState.dot(currState) / norm; // <u_n|H|u_n>/<u_n|u_n>
+
+
+			//tmpState = tmpState - a*currState - b2*prevState;
+			for (int b=0; b<currState.blockNum(); b++) tmpState[b] = tmpState[b] - a*currState[b] - b2*prevState[b];
+			prevState = currState;
+			currState = tmpState;
+
+			n++;
+		}
 	}
 
 	for (int i=0; i<baseState.blockNum(); i++) outputState.setBlockValue(i, baseState.getBlockValue(i));
 	return outputState;
 }
 
+BDMatrix oopLanczos(BDHamiltonian *matrix, BDMatrix baseState) {
+	return oopLanczos(matrix, baseState, true, 5, 0.00000001);
+}
+
+
 void FullDMRG(int N) {
 	double Jxy=1, Jz=1, Hz=0;
-	int D=256, maxSweeps=10;
+	int D=128, maxSweeps=20;
+	clock_t l0, l1, t0, t1, s0, s1;
+	double li_tot = 0, lf_tot = 0, d_tot = 0, t_tot = 0, i_tot, f_tot;
 
 	/* ******************************************************************************** */
 	/* declare variables */
@@ -159,7 +179,8 @@ void FullDMRG(int N) {
 	int n = 2, b = 2, sweeps = 0, counter = 0;
 	int currOp = 1, AOp = 0, BOp = N-1;
 	bool infinite = true, done = false, growingA = true;
-	double tolerance=0.0000000001;
+	double tolerance=0.00000001;
+	bool lanczosKeepVectors = true;
 	double baseEv;
 	vector<double> baseEvFinite;
 	double blockValue;
@@ -221,6 +242,7 @@ void FullDMRG(int N) {
 	/* ******************************************************************************** */
 	/* start DMRG */
 	/* ******************************************************************************** */
+	t0 = clock();
 	while (!done) {
 		counter++;
 		/* ******************************************************************************** */
@@ -409,14 +431,28 @@ void FullDMRG(int N) {
 			/* find AB base state with Lanczos */
 			/* ******************************************************************************** */
 			DBG(printf("finding AB base state with Lanczos\n"));
-			ABBaseState = oopLanczos(HAB, baseStateMatrix);
+			l0 = clock();
+			if (infinite) {
+				ABBaseState = oopLanczos(HAB, baseStateMatrix, lanczosKeepVectors, 5, tolerance);
+				l1 = clock();
+				li_tot += double(l1-l0)/CLOCKS_PER_SEC;
+			}
+			else {
+				ABBaseState = oopLanczos(HAB, baseStateMatrix, lanczosKeepVectors, 1, tolerance);
+				l1 = clock();
+				lf_tot += double(l1-l0)/CLOCKS_PER_SEC;
+			}
+			l0 = clock();
 			baseEv = ABBaseState.dot(HAB->apply(ABBaseState));
+			l1 = clock();
+			if (!infinite) t_tot += double(l1-l0);
 			DBG(printf("base Ev: %.20f\n", baseEv));
 
 			/* ******************************************************************************** */
 			/* density matrix - calculate, diagonalize, choose new basis */
 			/* ******************************************************************************** */
 			//create density matrix
+
 			DBG(printf("creating density matrix\n"));
 			DensityMatrix.resize(HAB->blockNum());
 			if (growingA) {
@@ -432,12 +468,14 @@ void FullDMRG(int N) {
 					DensityMatrix.setBlockValue(DensityMatrix.blockNum()-i-1, SzTot - ABBaseState.getBlockValue(i));
 				}
 			}
-
+			l0 = clock();
 			// diagonalize density matrix
 			blockSolvers.resize(DensityMatrix.blockNum());
 			DBG(printf("diagonalizing density matrix\n"));
 			for (int i=0; i<DensityMatrix.blockNum(); i++)
 				blockSolvers[i].compute(DensityMatrix[i]);
+			l1 = clock();
+			d_tot += double(l1-l0);
 
 			// select new basis vectors
 			DBG(printf("selecting new basis vectors\n"));
@@ -514,6 +552,10 @@ void FullDMRG(int N) {
 			n += 2;
 			if (AOp+1 == BOp) {
 				infinite = false; // infinite-system DMRG is done
+				t1 = clock();
+				i_tot = double(t1-t0)/CLOCKS_PER_SEC;
+				t0 = t1;
+				s0 = t0;
 			}
 			else {
 				currOp++;
@@ -525,11 +567,15 @@ void FullDMRG(int N) {
 			// sweeps control
 			if ((AOp + BOp + 1) == N) {
 				// done if maxSweeps or baseEv converges
-				done = ((sweeps >= maxSweeps) ||
-						(sweeps > 1 && abs(baseEv - baseEvFinite[baseEvFinite.size()-1])<tolerance));
+				//done = ((sweeps >= maxSweeps) ||
+				//		(sweeps > 1 && abs(baseEv - baseEvFinite[baseEvFinite.size()-1])<tolerance));
+				done = sweeps > 10;
 
 				baseEvFinite.push_back(baseEv);
+				s1 = clock();
+				printf("%f Seconds\n",double(s1-s0)/CLOCKS_PER_SEC);
 				sweeps++;
+				s0 = s1;
 			}
 
 
@@ -567,11 +613,24 @@ void FullDMRG(int N) {
 		//printf("   H[BOp]:  "); H[BOp].printStats();
 
 	}
+	t1 = clock();
+	f_tot = double(t1-t0)/CLOCKS_PER_SEC;
+
 	printf("Base state eigenvalue for %d site Heisenberg model IDMRG: %.20f\n", n, baseEvFinite[0]);
 	printf("Base state eigenvalue for %d site Heisenberg model FDMRG: %.20f\n", n, baseEvFinite[baseEvFinite.size()-1]);
 	printf("Bethe Ansatz eigenvalue in thermodynamical limit: %.20f\n", n*(0.25 - std::log(2.0)));
 	printf("Total sweeps: %d\n",sweeps);
 	printf("Total iterations: %d\n",counter);
+
+	printf("\n");
+	printf("infinite: %f SECONDS\n",i_tot);
+	printf("\tlanczos: %f SECONDS\n",li_tot);
+	printf("finite: %f SECONDS\n",f_tot);
+	printf("\tlanczos: %f SECONDS\n",lf_tot);
+	printf("\tdensity: %f SECONDS\n",d_tot / CLOCKS_PER_SEC);
+	printf("\ttransofrm: %f SECONDS\n",t_tot / CLOCKS_PER_SEC);
+	printf("\n");
+
 
 	ofstream file;
 	file.open("../Output/tmp.xls");
