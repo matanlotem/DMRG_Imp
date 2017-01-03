@@ -24,24 +24,18 @@
 using namespace Eigen;
 using namespace std;
 
-/*#define DEBUG = false
-#ifdef DEBUG
-#define DBG(x) (x)
-#else*/
-#define DBG(x)
-//#endif
+#define DBG(x)// (x)
 
 
 
-
-BDMatrix oopLanczos(BDHamiltonian *matrix, BDMatrix baseState, bool keepVectors, int convIter, double tol) {
+double oopLanczos(BDHamiltonian *matrix, BDMatrix & baseState, bool keepVectors, int convIter, double tol) {
 	int m = min(500, matrix->dim());
 	double a,b2,norm;
 
 	BDMatrix prevState(baseState.blockNum()),
 			  currState(baseState.blockNum()),
-			  tmpState(baseState.blockNum()),
-			  outputState(baseState.blockNum());
+			  tmpState(baseState.blockNum());
+	BDMatrix & outputState = baseState;
 
 	vector<BDMatrix> allStates;
 
@@ -65,7 +59,7 @@ BDMatrix oopLanczos(BDHamiltonian *matrix, BDMatrix baseState, bool keepVectors,
 
 	int n=1;
 	bool converged = false;
-	double currEv, prevEv=0;
+	double currEv, prevEv=a*norm;
 
 	//iterate to find base state
 	while (n<m && norm > 0 && !converged) {
@@ -105,6 +99,7 @@ BDMatrix oopLanczos(BDHamiltonian *matrix, BDMatrix baseState, bool keepVectors,
 
 	//diagonalize
 	solver.compute(KMatrix);
+	currEv = solver.eigenvalues()[0];
 
 	// calculate eigenvector
 	VectorXd minEigenVector = solver.eigenvectors().col(0);
@@ -156,11 +151,10 @@ BDMatrix oopLanczos(BDHamiltonian *matrix, BDMatrix baseState, bool keepVectors,
 		}
 	}
 
-	for (int i=0; i<baseState.blockNum(); i++) outputState.setBlockValue(i, baseState.getBlockValue(i));
-	return outputState;
+	return currEv;
 }
 
-BDMatrix oopLanczos(BDHamiltonian *matrix, BDMatrix baseState) {
+double oopLanczos(BDHamiltonian *matrix, BDMatrix & baseState) {
 	return oopLanczos(matrix, baseState, true, 5, 0.00000001);
 }
 
@@ -168,8 +162,8 @@ BDMatrix oopLanczos(BDHamiltonian *matrix, BDMatrix baseState) {
 void FullDMRG(int N) {
 	double Jxy=1, Jz=1, Hz=0;
 	int D=128, maxSweeps=20;
-	clock_t l0, l1, t0, t1, s0, s1;
-	double li_tot = 0, lf_tot = 0, d_tot = 0, t_tot = 0, i_tot, f_tot;
+	/*PROFILE*/ clock_t l0, l1, t0, t1, s0, s1;
+	/*PROFILE*/ double li_tot = 0, lf_tot = 0, d_tot = 0, t_tot = 0, g_tot = 0, i_tot, f_tot;
 
 	/* ******************************************************************************** */
 	/* declare variables */
@@ -179,7 +173,7 @@ void FullDMRG(int N) {
 	int n = 2, b = 2, sweeps = 0, counter = 0;
 	int currOp = 1, AOp = 0, BOp = N-1;
 	bool infinite = true, done = false, growingA = true;
-	double tolerance=0.00000001;
+	double tolerance=0.0000000001;
 	bool lanczosKeepVectors = true;
 	double baseEv;
 	vector<double> baseEvFinite;
@@ -242,12 +236,13 @@ void FullDMRG(int N) {
 	/* ******************************************************************************** */
 	/* start DMRG */
 	/* ******************************************************************************** */
-	t0 = clock();
+	/*PROFILE*/ t0 = clock();
 	while (!done) {
 		counter++;
 		/* ******************************************************************************** */
 		/* grow operators (grow O' from O) O' index: currOp, O: tmpOp */
 		/* ******************************************************************************** */
+
 		// count new block number
 		b = tmpH.blockNum() + 1;
 		for (int i=1; i<tmpH.blockNum(); i++)
@@ -361,13 +356,14 @@ void FullDMRG(int N) {
 			/* generate AB base state */
 			/* ******************************************************************************** */
 			DBG(printf("creating AB initial base state\n"));
+
 			// if Infinite-System DMRG or Finite-System DMRG turning point => random base state
 			if (infinite || TransOp[currOp+1].rows() <= D || TransOp[currOp-1].rows() <= D) {
 				baseState.resize(HAB->dim());
 				baseState.setRandom();
 				baseState = baseState / baseState.norm();
 			}
-
+			/*PROFILE*/ l0 = clock();
 			baseStateMatrix.resize(HAB->blockNum());
 			int I, vecInd=0, blockInd=0, LInd, RInd;
 			for (int i=0; i<H[AOp].blockNum(); i++) {
@@ -426,26 +422,25 @@ void FullDMRG(int N) {
 					blockInd++;
 				}
 			}
+			/*PROFILE*/ l1 = clock();
+			/*PROFILE*/ if (!infinite) g_tot += double(l1-l0);
 
 			/* ******************************************************************************** */
 			/* find AB base state with Lanczos */
 			/* ******************************************************************************** */
 			DBG(printf("finding AB base state with Lanczos\n"));
-			l0 = clock();
+			/*PROFILE*/ l0 = clock();
 			if (infinite) {
-				ABBaseState = oopLanczos(HAB, baseStateMatrix, lanczosKeepVectors, 5, tolerance);
-				l1 = clock();
-				li_tot += double(l1-l0)/CLOCKS_PER_SEC;
+				baseEv = oopLanczos(HAB, baseStateMatrix, lanczosKeepVectors, 5, tolerance);
+				/*PROFILE*/ l1 = clock();
+				/*PROFILE*/ li_tot += double(l1-l0)/CLOCKS_PER_SEC;
 			}
 			else {
-				ABBaseState = oopLanczos(HAB, baseStateMatrix, lanczosKeepVectors, 1, tolerance);
-				l1 = clock();
-				lf_tot += double(l1-l0)/CLOCKS_PER_SEC;
+				baseEv = oopLanczos(HAB, baseStateMatrix, lanczosKeepVectors, 1, tolerance);
+				/*PROFILE*/ l1 = clock();
+				/*PROFILE*/ lf_tot += double(l1-l0)/CLOCKS_PER_SEC;
 			}
-			l0 = clock();
-			baseEv = ABBaseState.dot(HAB->apply(ABBaseState));
-			l1 = clock();
-			if (!infinite) t_tot += double(l1-l0);
+			ABBaseState = baseStateMatrix;
 			DBG(printf("base Ev: %.20f\n", baseEv));
 
 			/* ******************************************************************************** */
@@ -468,14 +463,14 @@ void FullDMRG(int N) {
 					DensityMatrix.setBlockValue(DensityMatrix.blockNum()-i-1, SzTot - ABBaseState.getBlockValue(i));
 				}
 			}
-			l0 = clock();
+			/*PROFILE*/ l0 = clock();
 			// diagonalize density matrix
 			blockSolvers.resize(DensityMatrix.blockNum());
 			DBG(printf("diagonalizing density matrix\n"));
 			for (int i=0; i<DensityMatrix.blockNum(); i++)
 				blockSolvers[i].compute(DensityMatrix[i]);
-			l1 = clock();
-			d_tot += double(l1-l0);
+			/*PROFILE*/ l1 = clock();
+			/*PROFILE*/ if (!infinite) d_tot += double(l1-l0);
 
 			// select new basis vectors
 			DBG(printf("selecting new basis vectors\n"));
@@ -527,7 +522,7 @@ void FullDMRG(int N) {
 			tmpSplus.resize(b-1);
 
 			int currInd;
-
+			/*PROFILE*/ l0 = clock();
 			for (int i=0; i<TransOp[currOp].blockNum(); i++) {
 				blockValue = TransOp[currOp].getBlockValue(i);
 				currInd = H[currOp].getIndexByValue(blockValue);
@@ -537,8 +532,9 @@ void FullDMRG(int N) {
 				if (i>0) tmpSplus[i-1] = TransOp[currOp][i-1].transpose() * Splus[currOp][currInd - 1] * TransOp[currOp][i];
 				tmpSz.setBlockValue(i, blockValue);
 				tmpH.setBlockValue(i, blockValue);
-
 			}
+			/*PROFILE*/ l1 = clock();
+			/*PROFILE*/ if (!infinite) t_tot += double(l1-l0);
 
 			delete HAB;
 		}
@@ -552,10 +548,10 @@ void FullDMRG(int N) {
 			n += 2;
 			if (AOp+1 == BOp) {
 				infinite = false; // infinite-system DMRG is done
-				t1 = clock();
-				i_tot = double(t1-t0)/CLOCKS_PER_SEC;
-				t0 = t1;
-				s0 = t0;
+				/*PROFILE*/ t1 = clock();
+				/*PROFILE*/ i_tot = double(t1-t0)/CLOCKS_PER_SEC;
+				/*PROFILE*/ t0 = t1;
+				/*PROFILE*/ s0 = t0;
 			}
 			else {
 				currOp++;
@@ -567,15 +563,15 @@ void FullDMRG(int N) {
 			// sweeps control
 			if ((AOp + BOp + 1) == N) {
 				// done if maxSweeps or baseEv converges
-				//done = ((sweeps >= maxSweeps) ||
-				//		(sweeps > 1 && abs(baseEv - baseEvFinite[baseEvFinite.size()-1])<tolerance));
-				done = sweeps > 10;
+				done = ((sweeps >= maxSweeps) ||
+						(sweeps > 1 && abs(baseEv - baseEvFinite[baseEvFinite.size()-1])<tolerance));
+				/*PROFILE*/ done = sweeps > 10;
 
 				baseEvFinite.push_back(baseEv);
-				s1 = clock();
-				printf("%f Seconds\n",double(s1-s0)/CLOCKS_PER_SEC);
+				/*PROFILE*/ s1 = clock();
+				/*PROFILE*/ printf("%f Seconds\n",double(s1-s0)/CLOCKS_PER_SEC);
 				sweeps++;
-				s0 = s1;
+				/*PROFILE*/ s0 = s1;
 			}
 
 
@@ -613,8 +609,8 @@ void FullDMRG(int N) {
 		//printf("   H[BOp]:  "); H[BOp].printStats();
 
 	}
-	t1 = clock();
-	f_tot = double(t1-t0)/CLOCKS_PER_SEC;
+	/*PROFILE*/ t1 = clock();
+	/*PROFILE*/ f_tot = double(t1-t0)/CLOCKS_PER_SEC;
 
 	printf("Base state eigenvalue for %d site Heisenberg model IDMRG: %.20f\n", n, baseEvFinite[0]);
 	printf("Base state eigenvalue for %d site Heisenberg model FDMRG: %.20f\n", n, baseEvFinite[baseEvFinite.size()-1]);
@@ -622,14 +618,15 @@ void FullDMRG(int N) {
 	printf("Total sweeps: %d\n",sweeps);
 	printf("Total iterations: %d\n",counter);
 
-	printf("\n");
-	printf("infinite: %f SECONDS\n",i_tot);
-	printf("\tlanczos: %f SECONDS\n",li_tot);
-	printf("finite: %f SECONDS\n",f_tot);
-	printf("\tlanczos: %f SECONDS\n",lf_tot);
-	printf("\tdensity: %f SECONDS\n",d_tot / CLOCKS_PER_SEC);
-	printf("\ttransofrm: %f SECONDS\n",t_tot / CLOCKS_PER_SEC);
-	printf("\n");
+	/*PROFILE*/ printf("\n");
+	/*PROFILE*/ printf("infinite: %f SECONDS\n",i_tot);
+	/*PROFILE*/ printf("\tlanczos: %f SECONDS\n",li_tot);
+	/*PROFILE*/ printf("finite: %f SECONDS\n",f_tot);
+	/*PROFILE*/ printf("\tlanczos: %f SECONDS\n",lf_tot);
+	/*PROFILE*/ printf("\tgrow: %f SECONDS\n",g_tot / CLOCKS_PER_SEC);
+	/*PROFILE*/ printf("\tdensity: %f SECONDS\n",d_tot / CLOCKS_PER_SEC);
+	/*PROFILE*/ printf("\ttransofrm: %f SECONDS\n",t_tot / CLOCKS_PER_SEC);
+	/*PROFILE*/ printf("\n");
 
 
 	ofstream file;
